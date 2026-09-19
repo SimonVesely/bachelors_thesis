@@ -1,0 +1,8 @@
+[package]
+name = "proto-core"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+tracing = { workspace = true }

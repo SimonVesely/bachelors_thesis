@@ -1,0 +1,208 @@
+:root {
+  --color-bg: #ffffff;
+  --color-surface: #f4f5f7;
+  --color-black: #16171a;
+  --color-blue: #0033a0;
+  --color-blue-hover: #002676;
+  --color-red: #d0021b;
+  --color-border: #dfe1e6;
+
+  --font-display: "Vafle VUT", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "Vafle VUT", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-black);
+  font-family: var(--font-body);
+  font-weight: 400;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 32px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.app-header__mark {
+  width: 40px;
+  height: 40px;
+  background: var(--color-red);
+  flex-shrink: 0;
+}
+
+.app-header__eyebrow {
+  display: block;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-blue);
+  font-weight: 700;
+}
+
+.app-header__title {
+  margin: 2px 0 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.app-main {
+  flex: 1;
+  padding: 48px 32px;
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.section-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 20px;
+  margin: 0 0 4px;
+}
+
+.section-subtitle {
+  color: #55585f;
+  margin: 0 0 32px;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 24px;
+  color: var(--color-blue);
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 14px;
+}
+.back-link:hover { color: var(--color-blue-hover); }
+
+/* --- mode cards --- */
+
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.mode-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  padding: 24px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-blue);
+  border-radius: 4px;
+  text-decoration: none;
+  color: var(--color-black);
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+.mode-card:hover {
+  transform: translateY(-2px);
+  border-left-color: var(--color-red);
+}
+
+.mode-card--server  { border-left-color: var(--color-red); }
+.mode-card--client  { border-left-color: var(--color-blue); }
+.mode-card--fold    { border-left-color: var(--color-black); }
+
+.mode-card__label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 16px;
+}
+.mode-card__desc {
+  font-size: 14px;
+  color: #55585f;
+}
+
+/* --- protocol cards --- */
+
+.protocol-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.protocol-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 18px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  text-decoration: none;
+  color: var(--color-black);
+  background: var(--color-bg);
+}
+.protocol-card:hover {
+  border-color: var(--color-blue);
+  background: var(--color-surface);
+}
+.protocol-card__label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--color-blue);
+}
+.protocol-card__desc {
+  font-size: 13px;
+  color: #55585f;
+}
+
+/* --- status view --- */
+
+.status-summary {
+  display: flex;
+  gap: 32px;
+  padding: 20px 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  margin-bottom: 24px;
+}
+.status-summary__item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.status-summary__label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #55585f;
+}
+.status-summary__value {
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+.status-summary__value--pending { color: var(--color-red); }
+
+.log-panel {
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  min-height: 260px;
+  background: var(--color-black);
+  color: #d6d8db;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 13px;
+  padding: 16px;
+}
+.log-panel__placeholder { color: #8a8d93; }

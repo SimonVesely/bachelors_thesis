@@ -1,0 +1,15 @@
+[package]
+name = "server-cli"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+proto-core = { workspace = true }
+proto-ftp  = { workspace = true }
+proto-tftp = { workspace = true }
+proto-ftps = { workspace = true }
+proto-sftp = { workspace = true }
+tokio      = { workspace = true }
+clap       = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }

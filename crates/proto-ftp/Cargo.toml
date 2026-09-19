@@ -1,0 +1,9 @@
+[package]
+name = "proto-ftp"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+proto-core = { workspace = true }
+tokio      = { workspace = true }
+tracing    = { workspace = true }

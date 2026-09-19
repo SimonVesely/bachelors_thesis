@@ -1,6 +1,54 @@
-[package]
-name = "Bachelors_thesis"
+[workspace]
+members = [
+    "crates/proto-core",
+    "crates/proto-ftp",
+    "crates/proto-tftp",
+    "crates/proto-ftps",
+    "crates/proto-sftp",
+    "server-cli",
+    "app", "app",
+]
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
+[workspace.dependencies]
+anyhow = "1.0"
+bytes = "1.12"
+rcgen = "0.14"
+russh = "=0.63.3"
+russh-sftp = "3.0"
+rustls = "0.23"
+thiserror = "2.0"
+tokio-rustls = "0.26"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[workspace.dependencies.clap]
+version = "4.6"
+features = ["derive"]
+
+[workspace.dependencies.proto-core]
+path = "crates/proto-core"
+
+[workspace.dependencies.proto-ftp]
+path = "crates/proto-ftp"
+
+[workspace.dependencies.proto-ftps]
+path = "crates/proto-ftps"
+
+[workspace.dependencies.proto-sftp]
+path = "crates/proto-sftp"
+
+[workspace.dependencies.proto-tftp]
+path = "crates/proto-tftp"
+
+[workspace.dependencies.serde]
+version = "1.0"
+features = ["derive"]
+
+[workspace.dependencies.tokio]
+version = "1.53"
+features = ["full"]
