@@ -1,8 +1,12 @@
-use crate::Route;
+use crate::{AppState, Route};
 use dioxus::prelude::*;
 
 #[component]
 pub fn ModeSelect() -> Element {
+    let mut state = use_context::<AppState>();
+    let interfaces = state.interfaces.read().clone();
+    let selected = state.selected_interface.read().clone();
+
     rsx! {
         section { class: "mode-select",
             h2 { class: "section-title", "Choose application mode" }
@@ -32,6 +36,28 @@ pub fn ModeSelect() -> Element {
                     span { class: "mode-card__label", "Fold" }
                     span { class: "mode-card__desc",
                         "Server + client together — run and inspect a full session locally."
+                    }
+                }
+            }
+
+            div { class: "interface-picker",
+                h3 { class: "interface-picker__title", "Network interface" }
+                if interfaces.is_empty() {
+                    p { class: "interface-picker__empty", "No non-loopback interfaces found." }
+                } else {
+                    select {
+                        class: "interface-picker__select",
+                        value: "{selected.clone().unwrap_or_default()}",
+                        onchange: move |evt| {
+                            state.selected_interface.set(Some(evt.value()));
+                        },
+                        for iface in interfaces.iter() {
+                            option {
+                                key: "{iface.name}",
+                                value: "{iface.name}",
+                                "{iface.name} — {iface.ip}"
+                            }
+                        }
                     }
                 }
             }

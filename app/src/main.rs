@@ -7,6 +7,12 @@ use dioxus_desktop::tao::platform::macos::WindowBuilderExtMacOS;
 mod components;
 use components::{AppShell, ModeSelect, ProtocolSelect, Status, Unavailable};
 
+#[derive(Clone, Copy)]
+pub struct AppState {
+    pub interfaces: Signal<Vec<proto_core::NetInterface>>,
+    pub selected_interface: Signal<Option<String>>,
+}
+
 const VAFLE_REGULAR: Asset = asset!("/assets/fonts/VafleVUT-Regular.otf");
 const VAFLE_LIGHT: Asset = asset!("/assets/fonts/VafleVUT-Light.otf");
 const VAFLE_BOLD: Asset = asset!("/assets/fonts/VafleVUT-Bold.otf");
@@ -49,6 +55,14 @@ fn main() {
 
 #[component]
 fn App() -> Element {
+    let interfaces = proto_core::list_interfaces();
+    let default_selection = interfaces.first().map(|i| i.name.clone());
+
+    use_context_provider(|| AppState {
+        interfaces: Signal::new(interfaces),
+        selected_interface: Signal::new(default_selection),
+    });
+
     rsx! {
         document::Style {
             {format!(

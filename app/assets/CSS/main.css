@@ -344,3 +344,37 @@ body {
   font-weight: 700;
   color: var(--color-blue);
 }
+
+.interface-picker {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--color-border);
+}
+.interface-picker__title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.875rem;
+  letter-spacing: 0.04em;
+  margin: 0 0 12px;
+  color: #55585f;
+}
+.interface-picker__select {
+  width: 100%;
+  max-width: 360px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  color: var(--color-black);
+}
+.interface-picker__select:focus {
+  outline: none;
+  border-color: var(--color-blue);
+}
+.interface-picker__empty {
+  color: var(--color-red);
+  font-size: 0.875rem;
+}

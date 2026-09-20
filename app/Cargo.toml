@@ -10,6 +10,7 @@ edition = "2021"
 [dependencies]
 dioxus = { version = "0.7.1", features = ["router"] }
 dioxus-desktop = "0.7"
+proto-core   = { workspace = true }
 
 [features]
 default = ["desktop"]
