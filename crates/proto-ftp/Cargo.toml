@@ -2,6 +2,7 @@
 name = "proto-ftp"
 edition.workspace = true
 version.workspace = true
+license.workspace = true
 
 [dependencies]
 proto-core = { workspace = true }

@@ -58,3 +58,7 @@ cargo build --workspace
 cd app/
 dx serve
 ```
+
+## License
+
+GPL-3.0-or-later — see [LICENSE](LICENSE).

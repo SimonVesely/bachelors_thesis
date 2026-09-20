@@ -2,6 +2,7 @@
 name = "proto-core"
 edition.workspace = true
 version.workspace = true
+license.workspace = true
 
 [dependencies]
 tokio = { workspace = true }
