@@ -20,7 +20,7 @@ pub fn ModeSelect() -> Element {
                 }
                 Link {
                     class: "mode-card mode-card--client",
-                    to: Route::ProtocolSelect { mode: "client".to_string() },
+                    to: Route::Unavailable { mode: "client".to_string() },
                     span { class: "mode-card__label", "Client only" }
                     span { class: "mode-card__desc",
                         "Connect to an existing server as a client and log the exchange."
@@ -28,7 +28,7 @@ pub fn ModeSelect() -> Element {
                 }
                 Link {
                     class: "mode-card mode-card--fold",
-                    to: Route::ProtocolSelect { mode: "fold".to_string() },
+                    to: Route::Unavailable { mode: "fold".to_string() },
                     span { class: "mode-card__label", "Fold" }
                     span { class: "mode-card__desc",
                         "Server + client together — run and inspect a full session locally."

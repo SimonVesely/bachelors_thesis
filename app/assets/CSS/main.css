@@ -13,12 +13,17 @@
 
 * { box-sizing: border-box; }
 
+html {
+  font-size: clamp(14px, 0.7vw + 10px, 20px);
+}
+
 body {
   margin: 0;
   background: var(--color-bg);
   color: var(--color-black);
   font-family: var(--font-body);
   font-weight: 400;
+  font-size: 1rem;
 }
 
 .app-shell {
@@ -31,7 +36,7 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 20px 32px;
+  padding: 20px 32px 20px 84px;
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -44,7 +49,7 @@ body {
 
 .app-header__eyebrow {
   display: block;
-  font-size: 12px;
+  font-size: 0.75rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--color-blue);
@@ -55,7 +60,7 @@ body {
   margin: 2px 0 0;
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 22px;
+  font-size: 1.375rem;
   text-transform: uppercase;
   letter-spacing: 0.02em;
 }
@@ -72,7 +77,7 @@ body {
   font-family: var(--font-display);
   font-weight: 700;
   text-transform: uppercase;
-  font-size: 20px;
+  font-size: 1.25rem;
   margin: 0 0 4px;
 }
 
@@ -87,11 +92,9 @@ body {
   color: var(--color-blue);
   text-decoration: none;
   font-weight: 700;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 .back-link:hover { color: var(--color-blue-hover); }
-
-/* --- mode cards --- */
 
 .mode-grid {
   display: grid;
@@ -127,14 +130,12 @@ body {
   font-family: var(--font-display);
   font-weight: 700;
   text-transform: uppercase;
-  font-size: 16px;
+  font-size: 1rem;
 }
 .mode-card__desc {
-  font-size: 14px;
+  font-size: 0.875rem;
   color: #55585f;
 }
-
-/* --- protocol cards --- */
 
 .protocol-grid {
   display: grid;
@@ -163,11 +164,9 @@ body {
   color: var(--color-blue);
 }
 .protocol-card__desc {
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: #55585f;
 }
-
-/* --- status view --- */
 
 .status-summary {
   display: flex;
@@ -184,7 +183,7 @@ body {
   gap: 4px;
 }
 .status-summary__label {
-  font-size: 12px;
+  font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: #55585f;
@@ -202,7 +201,37 @@ body {
   background: var(--color-black);
   color: #d6d8db;
   font-family: ui-monospace, "SF Mono", monospace;
-  font-size: 13px;
+  font-size: 0.8125rem;
   padding: 16px;
 }
 .log-panel__placeholder { color: #8a8d93; }
+
+.unavailable-card {
+  margin-top: 24px;
+  padding: 24px;
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-red);
+  border-radius: 4px;
+  background: var(--color-surface);
+  max-width: 420px;
+}
+.unavailable-card__badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-red);
+  margin-bottom: 8px;
+}
+.unavailable-card__text {
+  margin: 0 0 16px;
+  color: #55585f;
+}
+.unavailable-card__cta {
+  display: inline-block;
+  color: var(--color-blue);
+  font-weight: 700;
+  text-decoration: none;
+}
+.unavailable-card__cta:hover { color: var(--color-blue-hover); }

@@ -1,7 +1,11 @@
 use dioxus::prelude::*;
+use dioxus_desktop::{Config, WindowBuilder};
+
+#[cfg(target_os = "macos")]
+use dioxus_desktop::tao::platform::macos::WindowBuilderExtMacOS;
 
 mod components;
-use components::{AppShell, ModeSelect, ProtocolSelect, Status};
+use components::{AppShell, ModeSelect, ProtocolSelect, Status, Unavailable};
 
 const VAFLE_REGULAR: Asset = asset!("/assets/fonts/VafleVUT-Regular.otf");
 const VAFLE_LIGHT: Asset = asset!("/assets/fonts/VafleVUT-Light.otf");
@@ -19,10 +23,28 @@ enum Route {
 
     #[route("/status/:mode/:protocol")]
     Status { mode: String, protocol: String },
+
+    #[route("/unavailable/:mode")]
+    Unavailable { mode: String },
 }
 
 fn main() {
-    dioxus::launch(App);
+    let mut window = WindowBuilder::new()
+        .with_title("FTPeek")
+        .with_min_inner_size(dioxus_desktop::tao::dpi::LogicalSize::new(760.0, 500.0));
+
+    #[cfg(target_os = "macos")]
+    {
+        window = window
+            .with_titlebar_transparent(true)
+            .with_title_hidden(true)
+            .with_fullsize_content_view(true)
+            .with_movable_by_window_background(true);
+    }
+
+    dioxus::LaunchBuilder::desktop()
+        .with_cfg(Config::new().with_window(window))
+        .launch(App);
 }
 
 #[component]
