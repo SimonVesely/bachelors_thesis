@@ -122,9 +122,9 @@ body {
   border-left-color: var(--color-red);
 }
 
-.mode-card--server  { border-left-color: var(--color-red); }
+.mode-card--server  { border-left-color: var(--color-blue); }
 .mode-card--client  { border-left-color: var(--color-blue); }
-.mode-card--fold    { border-left-color: var(--color-black); }
+.mode-card--fold    { border-left-color: var(--color-blue); }
 
 .mode-card__label {
   font-family: var(--font-display);
