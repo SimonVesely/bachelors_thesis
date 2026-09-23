@@ -4098,6 +4098,7 @@ name = "proto-ftp"
 version = "0.1.0"
 dependencies = [
  "proto-core",
+ "time",
  "tokio",
  "tracing",
 ]
