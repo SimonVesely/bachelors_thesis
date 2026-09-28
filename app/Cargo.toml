@@ -10,7 +10,11 @@ edition = "2021"
 [dependencies]
 dioxus = { version = "0.7.1", features = ["router"] }
 dioxus-desktop = "0.7"
-proto-core   = { workspace = true }
+dioxus-core    = "0.7"
+proto-core     = { workspace = true }
+proto-ftp      = { workspace = true }
+tracing        = { workspace = true }
+rfd            = "0.17"
 
 [features]
 default = ["desktop"]

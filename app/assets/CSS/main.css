@@ -378,3 +378,75 @@ body {
   color: var(--color-red);
   font-size: 0.875rem;
 }
+
+.status-summary__value--ok { color: #1a7d36; }
+
+.server-config {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 420px;
+  margin-bottom: 20px;
+}
+.server-config__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #55585f;
+}
+.server-config__field input {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  color: var(--color-black);
+  width: 100%;
+}
+.server-config__field input:focus { outline: none; border-color: var(--color-blue); }
+.server-config__field input:disabled { background: var(--color-surface); color: #9a9da3; }
+.server-config__field-row { display: flex; gap: 8px; }
+
+.browse-btn {
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--color-blue);
+  white-space: nowrap;
+}
+.browse-btn:hover { border-color: var(--color-blue); }
+.browse-btn:disabled { color: #9a9da3; cursor: not-allowed; }
+
+.status-error {
+  color: var(--color-red);
+  font-size: 0.875rem;
+  margin-bottom: 16px;
+}
+
+.server-controls { margin-bottom: 24px; }
+.btn {
+  padding: 10px 20px;
+  border-radius: 4px;
+  border: none;
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.8125rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.btn--primary { background: var(--color-blue); color: #ffffff; }
+.btn--primary:hover { background: var(--color-blue-hover); }
+.btn--danger { background: var(--color-red); color: #ffffff; }
+.btn--danger:hover { background: #a80115; }
+
+.log-line { display: flex; gap: 10px; padding: 2px 0; }
+.log-line__dir { color: #6a6d73; width: 14px; flex-shrink: 0; }
+.log-line__peer { color: #6a6d73; flex-shrink: 0; }
+.log-line__text { color: #e4e6e9; white-space: pre-wrap; word-break: break-all; }
