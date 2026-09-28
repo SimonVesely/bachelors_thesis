@@ -1,13 +1,12 @@
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
-use std::time::SystemTime;
 
 use tokio::fs;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 
-use proto_core::{Direction, EventSender, MessageEvent, Protocol};
+use proto_core::{Direction, EventKind, EventSender, MessageEvent, Protocol};
 
 use crate::command::Command;
 use crate::listing::{format_list_line, format_mdtm, format_mlsx_facts};
@@ -23,6 +22,12 @@ const FEATURES: &[&str] = &[
     "HOST",
 ];
 
+#[derive(Clone, Copy)]
+struct Endpoints {
+    peer: SocketAddr,
+    local: SocketAddr,
+}
+
 pub struct PassiveRange {
     pub start: u16,
     pub end: u16,
@@ -36,11 +41,21 @@ pub async fn handle_client(
     pasv_range: PassiveRange,
     events: EventSender,
 ) -> io::Result<()> {
+    let local = stream.local_addr()?;
+    let peer = Endpoints { peer, local };
     let (read_half, write_half) = stream.into_split();
     let mut reader = BufReader::new(read_half);
     let mut writer = write_half;
     let mut session = Session::new(root);
 
+    emit(
+        &events,
+        peer,
+        EventKind::TcpOpen,
+        Direction::ClientToServer,
+        Vec::new(),
+        "TCP handshake complete (SYN, SYN-ACK, ACK) - control connection established",
+    );
     send(
         &mut writer,
         peer,
@@ -214,7 +229,7 @@ pub async fn handle_client(
                     "150 Opening data connection for directory listing.\r\n",
                 )
                 .await?;
-                match send_listing(&mut session, peer, &events, &dir, false).await {
+                match send_listing(&mut session, &events, &dir, false).await {
                     Ok(_) => send(&mut writer, peer, &events, "226 Transfer complete.\r\n").await?,
                     Err(_) => {
                         send(
@@ -236,7 +251,7 @@ pub async fn handle_client(
                     "150 Opening data connection (MLSD).\r\n",
                 )
                 .await?;
-                match send_listing(&mut session, peer, &events, &dir, true).await {
+                match send_listing(&mut session, &events, &dir, true).await {
                     Ok(_) => send(&mut writer, peer, &events, "226 Transfer complete.\r\n").await?,
                     Err(_) => {
                         send(
@@ -282,7 +297,7 @@ pub async fn handle_client(
                     "150 Opening data connection for RETR.\r\n",
                 )
                 .await?;
-                match send_file(&mut session, peer, &events, &target).await {
+                match send_file(&mut session, &events, &target).await {
                     Ok(_) => send(&mut writer, peer, &events, "226 Transfer complete.\r\n").await?,
                     Err(_) => {
                         send(&mut writer, peer, &events, "550 Failed to open file.\r\n").await?
@@ -300,7 +315,7 @@ pub async fn handle_client(
                     "150 Opening data connection for upload.\r\n",
                 )
                 .await?;
-                match receive_file(&mut session, peer, &events, &target, append).await {
+                match receive_file(&mut session, &events, &target, append).await {
                     Ok(_) => send(&mut writer, peer, &events, "226 Transfer complete.\r\n").await?,
                     Err(_) => {
                         send(&mut writer, peer, &events, "550 Failed to write file.\r\n").await?
@@ -470,6 +485,14 @@ pub async fn handle_client(
         }
     }
 
+    emit(
+        &events,
+        peer,
+        EventKind::TcpClose,
+        Direction::ClientToServer,
+        Vec::new(),
+        "TCP control connection closed",
+    );
     Ok(())
 }
 
@@ -503,28 +526,82 @@ fn parse_port_arg(arg: &str) -> Option<SocketAddr> {
     Some(SocketAddr::new(ip, port))
 }
 
-async fn open_data_connection(session: &mut Session) -> io::Result<TcpStream> {
-    match &mut session.data_channel {
-        DataChannel::Passive(listener) => {
-            let (stream, _) = listener.accept().await?;
-            Ok(stream)
+fn emit(
+    events: &EventSender,
+    ep: Endpoints,
+    kind: EventKind,
+    direction: Direction,
+    raw: Vec<u8>,
+    parsed: impl Into<String>,
+) {
+    let _ = events.send(MessageEvent::new(
+        Protocol::Ftp,
+        kind,
+        direction,
+        ep.peer,
+        ep.local,
+        raw,
+        parsed,
+    ));
+}
+
+fn emit_data(
+    events: &EventSender,
+    ep: Endpoints,
+    direction: Direction,
+    length: usize,
+    parsed: impl Into<String>,
+) {
+    let _ = events.send(
+        MessageEvent::new(
+            Protocol::Ftp,
+            EventKind::Data,
+            direction,
+            ep.peer,
+            ep.local,
+            Vec::new(),
+            parsed,
+        )
+        .with_length(length),
+    );
+}
+
+async fn open_data_connection(
+    session: &mut Session,
+    events: &EventSender,
+) -> io::Result<(TcpStream, Endpoints)> {
+    let (stream, opener) = match &mut session.data_channel {
+        DataChannel::Passive(listener) => (listener.accept().await?.0, Direction::ClientToServer),
+        DataChannel::Active(addr) => (TcpStream::connect(*addr).await?, Direction::ServerToClient),
+        DataChannel::None => {
+            return Err(io::Error::new(
+                io::ErrorKind::NotConnected,
+                "no PASV/PORT issued",
+            ));
         }
-        DataChannel::Active(addr) => TcpStream::connect(*addr).await,
-        DataChannel::None => Err(io::Error::new(
-            io::ErrorKind::NotConnected,
-            "no PASV/PORT issued",
-        )),
-    }
+    };
+    let ep = Endpoints {
+        peer: stream.peer_addr()?,
+        local: stream.local_addr()?,
+    };
+    emit(
+        events,
+        ep,
+        EventKind::TcpOpen,
+        opener,
+        Vec::new(),
+        "TCP handshake complete (SYN, SYN-ACK, ACK) - data connection established",
+    );
+    Ok((stream, ep))
 }
 
 async fn send_listing(
     session: &mut Session,
-    peer: SocketAddr,
     events: &EventSender,
     dir: &PathBuf,
     machine_readable: bool,
 ) -> io::Result<()> {
-    let mut data = open_data_connection(session).await?;
+    let (mut data, ep) = open_data_connection(session, events).await?;
     let mut entries = fs::read_dir(dir).await?;
     let mut out = String::new();
     while let Some(entry) = entries.next_entry().await? {
@@ -538,44 +615,53 @@ async fn send_listing(
         }
     }
     data.write_all(out.as_bytes()).await?;
-    let _ = events.send(MessageEvent {
-        protocol: Protocol::Ftp,
-        direction: Direction::ServerToClient,
-        peer,
-        timestamp: SystemTime::now(),
-        raw: out.as_bytes().to_vec(),
-        parsed: Some(format!("[data] directory listing, {} bytes", out.len())),
-    });
+    emit(
+        events,
+        ep,
+        EventKind::Data,
+        Direction::ServerToClient,
+        out.as_bytes().to_vec(),
+        format!("Directory listing ({} bytes)", out.len()),
+    );
+    emit(
+        events,
+        ep,
+        EventKind::TcpClose,
+        Direction::ServerToClient,
+        Vec::new(),
+        "TCP data connection closed",
+    );
     Ok(())
 }
 
-async fn send_file(
-    session: &mut Session,
-    peer: SocketAddr,
-    events: &EventSender,
-    path: &PathBuf,
-) -> io::Result<()> {
+async fn send_file(session: &mut Session, events: &EventSender, path: &PathBuf) -> io::Result<()> {
     let mut file = fs::File::open(path).await?;
     if session.rest_offset > 0 {
         use tokio::io::AsyncSeekExt;
         file.seek(io::SeekFrom::Start(session.rest_offset)).await?;
     }
-    let mut data = open_data_connection(session).await?;
+    let (mut data, ep) = open_data_connection(session, events).await?;
     let bytes = tokio::io::copy(&mut file, &mut data).await?;
-    let _ = events.send(MessageEvent {
-        protocol: Protocol::Ftp,
-        direction: Direction::ServerToClient,
-        peer,
-        timestamp: SystemTime::now(),
-        raw: Vec::new(),
-        parsed: Some(format!("[data] sent {bytes} bytes")),
-    });
+    emit_data(
+        events,
+        ep,
+        Direction::ServerToClient,
+        bytes as usize,
+        format!("File data sent ({bytes} bytes)"),
+    );
+    emit(
+        events,
+        ep,
+        EventKind::TcpClose,
+        Direction::ServerToClient,
+        Vec::new(),
+        "TCP data connection closed",
+    );
     Ok(())
 }
 
 async fn receive_file(
     session: &mut Session,
-    peer: SocketAddr,
     events: &EventSender,
     path: &PathBuf,
     append: bool,
@@ -589,44 +675,51 @@ async fn receive_file(
     } else {
         fs::File::create(path).await?
     };
-    let mut data = open_data_connection(session).await?;
+    let (mut data, ep) = open_data_connection(session, events).await?;
     let bytes = tokio::io::copy(&mut data, &mut file).await?;
-    let _ = events.send(MessageEvent {
-        protocol: Protocol::Ftp,
-        direction: Direction::ClientToServer,
-        peer,
-        timestamp: SystemTime::now(),
-        raw: Vec::new(),
-        parsed: Some(format!("[data] received {bytes} bytes")),
-    });
+    emit_data(
+        events,
+        ep,
+        Direction::ClientToServer,
+        bytes as usize,
+        format!("File data received ({bytes} bytes)"),
+    );
+    emit(
+        events,
+        ep,
+        EventKind::TcpClose,
+        Direction::ClientToServer,
+        Vec::new(),
+        "TCP data connection closed",
+    );
     Ok(())
 }
 
 async fn send(
     writer: &mut (impl AsyncWriteExt + Unpin),
-    peer: SocketAddr,
+    ep: Endpoints,
     events: &EventSender,
     line: &str,
 ) -> io::Result<()> {
     writer.write_all(line.as_bytes()).await?;
-    let _ = events.send(MessageEvent {
-        protocol: Protocol::Ftp,
-        direction: Direction::ServerToClient,
-        peer,
-        timestamp: SystemTime::now(),
-        raw: line.as_bytes().to_vec(),
-        parsed: Some(line.trim_end().to_string()),
-    });
+    emit(
+        events,
+        ep,
+        EventKind::Message,
+        Direction::ServerToClient,
+        line.as_bytes().to_vec(),
+        line.trim_end(),
+    );
     Ok(())
 }
 
-fn log_incoming(peer: SocketAddr, events: &EventSender, line: &str) {
-    let _ = events.send(MessageEvent {
-        protocol: Protocol::Ftp,
-        direction: Direction::ClientToServer,
-        peer,
-        timestamp: SystemTime::now(),
-        raw: line.as_bytes().to_vec(),
-        parsed: Some(line.trim_end().to_string()),
-    });
+fn log_incoming(ep: Endpoints, events: &EventSender, line: &str) {
+    emit(
+        events,
+        ep,
+        EventKind::Message,
+        Direction::ClientToServer,
+        line.as_bytes().to_vec(),
+        line.trim_end(),
+    );
 }
