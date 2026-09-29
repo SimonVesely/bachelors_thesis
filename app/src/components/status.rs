@@ -4,9 +4,10 @@ use std::path::PathBuf;
 use dioxus::prelude::*;
 use dioxus_core::Task;
 
-use proto_core::{event_channel, Direction, MessageEvent};
+use proto_core::{event_channel, MessageEvent};
 use proto_ftp::{serve, FtpServerConfig};
 
+use super::PacketLog;
 use crate::{AppState, Route};
 
 #[component]
@@ -49,7 +50,8 @@ pub fn Status(mode: String, protocol: String) -> Element {
 
         let task = spawn(async move {
             if let Err(err) = serve(cfg, tx).await {
-                tracing::error!(%err, "FTP server exited");
+                error_msg.set(Some(format!("Server error: {err}")));
+                running.set(false);
             }
         });
         server_task.set(Some(task));
@@ -78,7 +80,7 @@ pub fn Status(mode: String, protocol: String) -> Element {
 
             if !is_ftp_server {
                 p { class: "section-subtitle",
-                    "Only the FTP server is wired up so far — {protocol} for {mode} isn't running yet."
+                    "Only the FTP server is wired up so far - {protocol} for {mode} isn't running yet."
                 }
             } else {
                 div { class: "status-summary",
@@ -97,13 +99,19 @@ pub fn Status(mode: String, protocol: String) -> Element {
                             if running() { "listening" } else { "stopped" }
                         }
                     }
-                }
+                    div { class: "status-summary__item status-summary__item--action",
+                        if !running() {
+                            button { class: "btn btn--primary", onclick: start_server, "Start server" }
+                        } else {
+                            button { class: "btn btn--danger", onclick: stop_server, "Stop server" }
+                        }
+                    }
 
-                div { class: "server-config",
-                    label { class: "server-config__field",
-                        span { "Root directory" }
-                        div { class: "server-config__field-row",
+                    div { class: "status-summary__item status-summary__item--wide",
+                        span { class: "status-summary__label", "Root directory" }
+                        div { class: "status-summary__field-row",
                             input {
+                                class: "status-summary__input",
                                 r#type: "text",
                                 value: "{root_dir}",
                                 disabled: running(),
@@ -122,9 +130,10 @@ pub fn Status(mode: String, protocol: String) -> Element {
                             }
                         }
                     }
-                    label { class: "server-config__field",
-                        span { "PI port (control)" }
+                    div { class: "status-summary__item",
+                        span { class: "status-summary__label", "PI port (control)" }
                         input {
+                            class: "status-summary__input",
                             r#type: "number",
                             value: "{pi_port}",
                             disabled: running(),
@@ -135,9 +144,10 @@ pub fn Status(mode: String, protocol: String) -> Element {
                             },
                         }
                     }
-                    label { class: "server-config__field",
-                        span { "DTP port (PASV)" }
+                    div { class: "status-summary__item",
+                        span { class: "status-summary__label", "DTP port (PASV)" }
                         input {
+                            class: "status-summary__input",
                             r#type: "number",
                             value: "{dtp_port}",
                             disabled: running(),
@@ -148,35 +158,13 @@ pub fn Status(mode: String, protocol: String) -> Element {
                             },
                         }
                     }
-                }
 
-                if let Some(err) = error_msg() {
-                    p { class: "status-error", "{err}" }
-                }
-
-                div { class: "server-controls",
-                    if !running() {
-                        button { class: "btn btn--primary", onclick: start_server, "Start server" }
-                    } else {
-                        button { class: "btn btn--danger", onclick: stop_server, "Stop server" }
+                    if let Some(err) = error_msg() {
+                        p { class: "status-error", "{err}" }
                     }
                 }
-            }
 
-            div { class: "log-panel",
-                if logs.read().is_empty() {
-                    p { class: "log-panel__placeholder", "No messages yet." }
-                } else {
-                    for (i, entry) in logs.read().iter().enumerate() {
-                        div { key: "{i}", class: "log-line",
-                            span { class: "log-line__dir",
-                                if entry.direction == Direction::ClientToServer { "\u{2192}" } else { "\u{2190}" }
-                            }
-                            span { class: "log-line__peer", "{entry.peer}" }
-                            span { class: "log-line__text", "{entry.parsed.clone().unwrap_or_default()}" }
-                        }
-                    }
-                }
+                PacketLog { logs }
             }
         }
     }
