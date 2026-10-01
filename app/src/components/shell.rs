@@ -1,7 +1,7 @@
 use crate::Route;
 use dioxus::prelude::*;
 
-const GITHUB_URL: &str = "https://github.com/simonvesely/ftpeek";
+const GITHUB_URL: &str = "https://github.com/SimonVesely/bachelors_thesis";
 const LICENSE: &str = "GPL-3.0";
 const AUTHOR: &str = "Simon Veselý";
 
