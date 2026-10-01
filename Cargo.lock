@@ -101,6 +101,7 @@ dependencies = [
  "proto-core",
  "proto-ftp",
  "rfd",
+ "tokio",
  "tracing",
 ]
 

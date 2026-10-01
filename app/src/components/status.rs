@@ -2,12 +2,12 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 
 use dioxus::prelude::*;
-use dioxus_core::Task;
+use tokio::sync::broadcast;
 
 use proto_core::{event_channel, MessageEvent};
 use proto_ftp::{serve, FtpServerConfig};
 
-use super::PacketLog;
+use super::{DirectoryPreview, PacketDetail, PacketDiagram, PacketLog};
 use crate::{AppState, Route};
 
 #[component]
@@ -19,8 +19,9 @@ pub fn Status(mode: String, protocol: String) -> Element {
     let mut dtp_port = use_signal(|| 20u16);
     let mut running = use_signal(|| false);
     let mut logs = use_signal(Vec::<MessageEvent>::new);
-    let mut server_task = use_signal(|| None::<Task>);
+    let selected = use_signal(|| None::<usize>);
     let mut error_msg = use_signal(|| None::<String>);
+    let mut shutdown_tx = use_signal(|| None::<broadcast::Sender<()>>);
 
     let is_ftp_server = mode == "server" && protocol == "ftp";
 
@@ -40,6 +41,9 @@ pub fn Status(mode: String, protocol: String) -> Element {
         }
 
         let (tx, mut rx) = event_channel();
+        let (shutdown_send, shutdown_recv) = broadcast::channel(4);
+        shutdown_tx.set(Some(shutdown_send));
+
         let cfg = FtpServerConfig {
             bind_addr: bind_ip,
             control_port: pi_port(),
@@ -48,13 +52,12 @@ pub fn Status(mode: String, protocol: String) -> Element {
             root_dir: root,
         };
 
-        let task = spawn(async move {
-            if let Err(err) = serve(cfg, tx).await {
+        spawn(async move {
+            if let Err(err) = serve(cfg, tx, shutdown_recv).await {
                 error_msg.set(Some(format!("Server error: {err}")));
-                running.set(false);
             }
+            running.set(false);
         });
-        server_task.set(Some(task));
 
         spawn(async move {
             while let Some(event) = rx.recv().await {
@@ -67,10 +70,9 @@ pub fn Status(mode: String, protocol: String) -> Element {
     };
 
     let stop_server = move |_| {
-        if let Some(task) = server_task.write().take() {
-            task.cancel();
+        if let Some(tx) = shutdown_tx.write().take() {
+            let _ = tx.send(());
         }
-        running.set(false);
     };
 
     rsx! {
@@ -83,88 +85,105 @@ pub fn Status(mode: String, protocol: String) -> Element {
                     "Only the FTP server is wired up so far - {protocol} for {mode} isn't running yet."
                 }
             } else {
-                div { class: "status-summary",
-                    div { class: "status-summary__item",
-                        span { class: "status-summary__label", "Mode" }
-                        span { class: "status-summary__value", "{mode}" }
-                    }
-                    div { class: "status-summary__item",
-                        span { class: "status-summary__label", "Protocol" }
-                        span { class: "status-summary__value", "FTP" }
-                    }
-                    div { class: "status-summary__item",
-                        span { class: "status-summary__label", "State" }
-                        span {
-                            class: if running() { "status-summary__value status-summary__value--ok" } else { "status-summary__value status-summary__value--pending" },
-                            if running() { "listening" } else { "stopped" }
-                        }
-                    }
-                    div { class: "status-summary__item status-summary__item--action",
-                        if !running() {
-                            button { class: "btn btn--primary", onclick: start_server, "Start server" }
-                        } else {
-                            button { class: "btn btn--danger", onclick: stop_server, "Stop server" }
-                        }
-                    }
-
-                    div { class: "status-summary__item status-summary__item--wide",
-                        span { class: "status-summary__label", "Root directory" }
-                        div { class: "status-summary__field-row",
-                            input {
-                                class: "status-summary__input",
-                                r#type: "text",
-                                value: "{root_dir}",
-                                disabled: running(),
-                                oninput: move |e| root_dir.set(e.value()),
+                div { class: "status-grid",
+                    div { class: "status-grid__cell",
+                        div { class: "status-summary",
+                            div { class: "status-summary__item",
+                                span { class: "status-summary__label", "Mode" }
+                                span { class: "status-summary__value", "{mode}" }
                             }
-                            button {
-                                class: "browse-btn",
-                                r#type: "button",
-                                disabled: running(),
-                                onclick: move |_| {
-                                    if let Some(folder) = rfd::FileDialog::new().pick_folder() {
-                                        root_dir.set(folder.display().to_string());
+                            div { class: "status-summary__item",
+                                span { class: "status-summary__label", "Protocol" }
+                                span { class: "status-summary__value", "FTP" }
+                            }
+                            div { class: "status-summary__item",
+                                span { class: "status-summary__label", "State" }
+                                span {
+                                    class: if running() { "status-summary__value status-summary__value--ok" } else { "status-summary__value status-summary__value--pending" },
+                                    if running() { "listening" } else { "stopped" }
+                                }
+                            }
+                            div { class: "status-summary__item status-summary__item--action",
+                                if !running() {
+                                    button { class: "btn btn--primary", onclick: start_server, "Start server" }
+                                } else {
+                                    button { class: "btn btn--danger", onclick: stop_server, "Stop server" }
+                                }
+                            }
+                            div { class: "status-summary__item status-summary__item--wide",
+                                span { class: "status-summary__label", "Root directory" }
+                                div { class: "status-summary__field-row",
+                                    input {
+                                        class: "status-summary__input",
+                                        r#type: "text",
+                                        value: "{root_dir}",
+                                        disabled: running(),
+                                        oninput: move |e| root_dir.set(e.value()),
                                     }
-                                },
-                                "Browse\u{2026}"
+                                    button {
+                                        class: "browse-btn",
+                                        r#type: "button",
+                                        disabled: running(),
+                                        onclick: move |_| {
+                                            if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                                                root_dir.set(folder.display().to_string());
+                                            }
+                                        },
+                                        "Browse\u{2026}"
+                                    }
+                                }
+                            }
+                            div { class: "status-summary__item",
+                                span { class: "status-summary__label", "PI port (control)" }
+                                input {
+                                    class: "status-summary__input",
+                                    r#type: "number",
+                                    value: "{pi_port}",
+                                    disabled: running(),
+                                    oninput: move |e| {
+                                        if let Ok(v) = e.value().parse() {
+                                            pi_port.set(v);
+                                        }
+                                    },
+                                }
+                            }
+                            div { class: "status-summary__item",
+                                span { class: "status-summary__label", "DTP port (PASV)" }
+                                input {
+                                    class: "status-summary__input",
+                                    r#type: "number",
+                                    value: "{dtp_port}",
+                                    disabled: running(),
+                                    oninput: move |e| {
+                                        if let Ok(v) = e.value().parse() {
+                                            dtp_port.set(v);
+                                        }
+                                    },
+                                }
+                            }
+                            if let Some(err) = error_msg() {
+                                p { class: "status-error", "{err}" }
                             }
                         }
                     }
-                    div { class: "status-summary__item",
-                        span { class: "status-summary__label", "PI port (control)" }
-                        input {
-                            class: "status-summary__input",
-                            r#type: "number",
-                            value: "{pi_port}",
-                            disabled: running(),
-                            oninput: move |e| {
-                                if let Ok(v) = e.value().parse() {
-                                    pi_port.set(v);
-                                }
-                            },
-                        }
-                    }
-                    div { class: "status-summary__item",
-                        span { class: "status-summary__label", "DTP port (PASV)" }
-                        input {
-                            class: "status-summary__input",
-                            r#type: "number",
-                            value: "{dtp_port}",
-                            disabled: running(),
-                            oninput: move |e| {
-                                if let Ok(v) = e.value().parse() {
-                                    dtp_port.set(v);
-                                }
-                            },
-                        }
+
+                    div { class: "status-grid__cell",
+                        DirectoryPreview { root_dir, logs }
                     }
 
-                    if let Some(err) = error_msg() {
-                        p { class: "status-error", "{err}" }
+                    div { class: "status-grid__cell",
+                        PacketLog { logs, selected }
+                    }
+
+                    div { class: "status-grid__cell status-grid__cell--split",
+                        div { class: "status-grid__sub",
+                            PacketDetail { logs, selected }
+                        }
+                        div { class: "status-grid__sub",
+                            PacketDiagram { logs, selected }
+                        }
                     }
                 }
-
-                PacketLog { logs }
             }
         }
     }

@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use proto_core::{Direction, EventKind, MessageEvent, Protocol};
 
 struct Row {
-    class: &'static str,
+    class: String,
     no: usize,
     time: String,
     src: String,
@@ -10,6 +10,7 @@ struct Row {
     proto: &'static str,
     len: usize,
     info: String,
+    end_of_group: bool,
 }
 
 fn proto_label(e: &MessageEvent) -> &'static str {
@@ -35,14 +36,39 @@ fn info_text(e: &MessageEvent) -> String {
     }
 }
 
+fn group_boundaries(entries: &[MessageEvent]) -> Vec<bool> {
+    let mut group_id = 0usize;
+    let mut ids = Vec::with_capacity(entries.len());
+
+    for e in entries {
+        let starts_new_group = matches!(e.kind, EventKind::TcpOpen)
+            || matches!(
+                (e.kind, e.direction),
+                (EventKind::Message, Direction::ClientToServer)
+            );
+        if starts_new_group && !ids.is_empty() {
+            group_id += 1;
+        }
+        ids.push(group_id);
+    }
+
+    (0..ids.len())
+        .map(|i| i == ids.len() - 1 || ids[i + 1] != ids[i])
+        .collect()
+}
+
 #[component]
-pub fn PacketLog(logs: Signal<Vec<MessageEvent>>) -> Element {
+pub fn PacketLog(logs: Signal<Vec<MessageEvent>>, selected: Signal<Option<usize>>) -> Element {
     let mut logs = logs;
+    let mut selected = selected;
     let mut autoscroll = use_signal(|| true);
 
     let rows: Vec<Row> = {
         let entries = logs.read();
         let t0 = entries.first().map(|e| e.timestamp);
+        let current = selected();
+        let ends = group_boundaries(&entries);
+
         entries
             .iter()
             .enumerate()
@@ -55,11 +81,14 @@ pub fn PacketLog(logs: Signal<Vec<MessageEvent>>) -> Element {
                     Direction::ClientToServer => (e.peer, e.local),
                     Direction::ServerToClient => (e.local, e.peer),
                 };
-                let class = match (e.kind, e.direction) {
-                    (EventKind::TcpOpen | EventKind::TcpClose, _) => "pkt--tcp",
-                    (_, Direction::ClientToServer) => "pkt--in",
-                    (_, Direction::ServerToClient) => "pkt--out",
+                let mut class = match (e.kind, e.direction) {
+                    (EventKind::TcpOpen | EventKind::TcpClose, _) => "pkt--tcp".to_string(),
+                    (_, Direction::ClientToServer) => "pkt--in".to_string(),
+                    (_, Direction::ServerToClient) => "pkt--out".to_string(),
                 };
+                if current == Some(i) {
+                    class.push_str(" pkt--selected");
+                }
                 Row {
                     class,
                     no: i + 1,
@@ -69,6 +98,7 @@ pub fn PacketLog(logs: Signal<Vec<MessageEvent>>) -> Element {
                     proto: proto_label(e),
                     len: e.length,
                     info: info_text(e),
+                    end_of_group: ends[i],
                 }
             })
             .collect()
@@ -100,7 +130,10 @@ pub fn PacketLog(logs: Signal<Vec<MessageEvent>>) -> Element {
                 }
                 button {
                     class: "btn btn--ghost",
-                    onclick: move |_| logs.write().clear(),
+                    onclick: move |_| {
+                        logs.write().clear();
+                        selected.set(None);
+                    },
                     "Clear"
                 }
             }
@@ -109,6 +142,15 @@ pub fn PacketLog(logs: Signal<Vec<MessageEvent>>) -> Element {
                     p { class: "packet-log__empty", "No packets captured yet." }
                 } else {
                     table { class: "packet-table",
+                        colgroup {
+                            col { class: "col-no" }
+                            col { class: "col-time" }
+                            col { class: "col-src" }
+                            col { class: "col-dst" }
+                            col { class: "col-proto" }
+                            col { class: "col-len" }
+                            col { class: "col-info" }
+                        }
                         thead {
                             tr {
                                 th { class: "packet-table__num", "No." }
@@ -122,7 +164,13 @@ pub fn PacketLog(logs: Signal<Vec<MessageEvent>>) -> Element {
                         }
                         tbody {
                             for row in rows.iter() {
-                                tr { key: "{row.no}", class: "{row.class}",
+                                tr {
+                                    key: "{row.no}",
+                                    class: if row.end_of_group { format!("{} pkt--group-end", row.class) } else { row.class.clone() },
+                                    onclick: {
+                                        let no = row.no;
+                                        move |_| selected.set(Some(no - 1))
+                                    },
                                     td { class: "packet-table__num", "{row.no}" }
                                     td { "{row.time}" }
                                     td { "{row.src}" }

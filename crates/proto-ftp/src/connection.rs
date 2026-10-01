@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use tokio::fs;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::broadcast;
 
 use proto_core::{Direction, EventKind, EventSender, MessageEvent, Protocol};
 
@@ -33,17 +34,21 @@ pub struct PassiveRange {
     pub end: u16,
 }
 
-pub async fn handle_client(
-    stream: TcpStream,
+pub async fn handle_client<S>(
+    stream: S,
     peer: SocketAddr,
+    local: SocketAddr,
     bind_addr: IpAddr,
     root: PathBuf,
     pasv_range: PassiveRange,
     events: EventSender,
-) -> io::Result<()> {
-    let local = stream.local_addr()?;
+    mut shutdown: broadcast::Receiver<()>,
+) -> io::Result<()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
     let peer = Endpoints { peer, local };
-    let (read_half, write_half) = stream.into_split();
+    let (read_half, write_half) = tokio::io::split(stream);
     let mut reader = BufReader::new(read_half);
     let mut writer = write_half;
     let mut session = Session::new(root);
@@ -67,9 +72,16 @@ pub async fn handle_client(
     let mut line = String::new();
     loop {
         line.clear();
-        let n = reader.read_line(&mut line).await?;
-        if n == 0 {
-            break;
+        tokio::select! {
+            result = reader.read_line(&mut line) => {
+                if result? == 0 {
+                    break; // client closed the connection
+                }
+            }
+            _ = shutdown.recv() => {
+                let _ = send(&mut writer, peer, &events, "421 Service not available, closing control connection.\r\n").await;
+                break;
+            }
         }
         log_incoming(peer, &events, &line);
 

@@ -15,6 +15,7 @@ proto-core     = { workspace = true }
 proto-ftp      = { workspace = true }
 tracing        = { workspace = true }
 rfd            = "0.17"
+tokio          = { workspace = true }
 
 [features]
 default = ["desktop"]
