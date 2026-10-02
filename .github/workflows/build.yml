@@ -14,13 +14,10 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            artifact_name: ftpeek
             asset_name: ftpeek-macos
           - os: windows-latest
-            artifact_name: app.exe
-            asset_name: ftpeek-windows.exe
+            asset_name: ftpeek-windows
           - os: ubuntu-latest
-            artifact_name: ftpeek
             asset_name: ftpeek-linux
 
     runs-on: ${{ matrix.os }}
@@ -47,31 +44,37 @@ jobs:
         with:
           workspaces: ". -> target"
 
-      - name: Build app (release)
-        run: cargo build --release -p app
+      - name: Install Dioxus CLI
+        run: cargo install dioxus-cli --locked
 
-      - name: Stage binary
+      - name: Bundle app (release)
+        run: dx bundle --release --desktop
+
+      - name: Stage bundle
         shell: bash
         run: |
           mkdir -p dist
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp target/release/app.exe dist/${{ matrix.asset_name }}
-          else
-            cp target/release/app dist/${{ matrix.asset_name }}
+          BUNDLE_DIR=$(find target/dx -type d -iname "bundle" | head -n 1)
+          if [ -z "$BUNDLE_DIR" ]; then
+            echo "Could not locate dx bundle output under target/dx" >&2
+            find target/dx -maxdepth 4 >&2
+            exit 1
           fi
+          cd "$(dirname "$BUNDLE_DIR")"
+          zip -r "$GITHUB_WORKSPACE/dist/${{ matrix.asset_name }}.zip" "$(basename "$BUNDLE_DIR")"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset_name }}
-          path: dist/${{ matrix.asset_name }}
+          path: dist/${{ matrix.asset_name }}.zip
 
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
-          contents: write
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
