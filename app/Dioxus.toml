@@ -22,4 +22,5 @@ script = []
 
 [bundle]
 identifier = "cz.simonvesely.ftpeek"
+publisher = "Simon Veselý"
 icon = ["assets/icon/ftpeek.png"]
