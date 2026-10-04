@@ -3,7 +3,7 @@
 [web.app]
 
 # HTML title tag content
-title = "app"
+title = "FTPeek"
 
 # include `assets` in web platform
 [web.resource]
@@ -19,3 +19,7 @@ script = []
 # Javascript code file
 # serve: [dev-server] only
 script = []
+
+[bundle]
+identifier = "cz.simonvesely.ftpeek"
+icon = ["assets/icon/ftpeek.png"]
