@@ -48,7 +48,7 @@ jobs:
         run: cargo install dioxus-cli --locked
 
       - name: Bundle app (release)
-        run: dx bundle --release --desktop
+        run: dx bundle --release --desktop --package app
 
       - name: Stage bundle
         shell: bash
