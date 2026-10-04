@@ -50,7 +50,7 @@ jobs:
       - name: Bundle app (release)
         run: dx bundle --release --desktop --package app
 
-      - name: Stage bundle
+      - name: Locate bundle
         shell: bash
         run: |
           mkdir -p dist
@@ -60,8 +60,23 @@ jobs:
             find target/dx -maxdepth 4 >&2
             exit 1
           fi
+          echo "BUNDLE_DIR=$BUNDLE_DIR" >> "$GITHUB_ENV"
+
+      - name: Archive bundle (unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
           cd "$(dirname "$BUNDLE_DIR")"
           zip -r "$GITHUB_WORKSPACE/dist/${{ matrix.asset_name }}.zip" "$(basename "$BUNDLE_DIR")"
+
+      - name: Archive bundle (windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $bundleDir = $env:BUNDLE_DIR -replace '/', '\'
+          $parent = Split-Path $bundleDir -Parent
+          $leaf = Split-Path $bundleDir -Leaf
+          Compress-Archive -Path (Join-Path $parent $leaf) -DestinationPath "dist\${{ matrix.asset_name }}.zip" -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
