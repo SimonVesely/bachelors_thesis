@@ -50,6 +50,10 @@ jobs:
       - name: Bundle app (release)
         run: dx bundle --release --desktop --package app
 
+      - name: Show dx output layout
+        shell: bash
+        run: find target/dx -maxdepth 7 | head -n 120 || true
+
       - name: Locate bundle
         shell: bash
         run: |
@@ -69,20 +73,39 @@ jobs:
           cd "$(dirname "$BUNDLE_DIR")"
           zip -r "$GITHUB_WORKSPACE/dist/${{ matrix.asset_name }}.zip" "$(basename "$BUNDLE_DIR")"
 
-      - name: Archive bundle (windows)
+      - name: Archive installer bundle (windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
           $bundleDir = $env:BUNDLE_DIR -replace '/', '\'
           $parent = Split-Path $bundleDir -Parent
           $leaf = Split-Path $bundleDir -Leaf
-          Compress-Archive -Path (Join-Path $parent $leaf) -DestinationPath "dist\${{ matrix.asset_name }}.zip" -Force
+          Compress-Archive -Path (Join-Path $parent $leaf) -DestinationPath "dist\${{ matrix.asset_name }}-installer.zip" -Force
+
+      - name: Archive portable build (windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path target/dx -Recurse -Filter app.exe -File |
+            Where-Object { $_.FullName -notmatch '[\\/]bundle[\\/]' } |
+            Select-Object -First 1
+          if (-not $exe) {
+            Write-Error "app.exe not found under target/dx"
+            exit 1
+          }
+          $dir = $exe.DirectoryName
+          Write-Host "Portable dir: $dir"
+          Get-ChildItem $dir -Force | Format-Table Name, Length
+          if (-not (Test-Path (Join-Path $dir 'assets'))) {
+            Write-Host "::warning::assets folder is missing next to app.exe - CSS and fonts will not load"
+          }
+          Compress-Archive -Path "$dir\*" -DestinationPath "dist\${{ matrix.asset_name }}-portable.zip" -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset_name }}
-          path: dist/${{ matrix.asset_name }}.zip
+          path: dist/*.zip
 
   release:
     needs: build
