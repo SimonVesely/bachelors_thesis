@@ -5,3 +5,9 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
+proto-core   = { workspace = true }
+proto-ftp    = { workspace = true }
+tokio        = { workspace = true }
+rustls       = { workspace = true }
+tokio-rustls = { workspace = true }
+rcgen        = { workspace = true }
