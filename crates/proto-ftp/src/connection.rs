@@ -3,7 +3,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 
 use tokio::fs;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast;
 
@@ -12,6 +12,7 @@ use proto_core::{Direction, EventKind, EventSender, MessageEvent, Protocol};
 use crate::command::Command;
 use crate::listing::{format_list_line, format_mdtm, format_mlsx_facts};
 use crate::session::{DataChannel, Session};
+use crate::tls::{AsyncStream, BoxedStream, TlsUpgrader};
 
 const FEATURES: &[&str] = &[
     "MDTM",
@@ -23,17 +24,19 @@ const FEATURES: &[&str] = &[
     "HOST",
 ];
 
-#[derive(Clone, Copy)]
-struct Endpoints {
-    peer: SocketAddr,
-    local: SocketAddr,
-}
-
 pub struct PassiveRange {
     pub start: u16,
     pub end: u16,
 }
 
+#[derive(Clone, Copy)]
+struct Endpoints {
+    peer: SocketAddr,
+    local: SocketAddr,
+    protocol: Protocol,
+}
+
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_client<S>(
     stream: S,
     peer: SocketAddr,
@@ -43,31 +46,63 @@ pub async fn handle_client<S>(
     pasv_range: PassiveRange,
     events: EventSender,
     mut shutdown: broadcast::Receiver<()>,
+    protocol: Protocol,
+    tls: Option<TlsUpgrader>,
+    implicit_tls: bool,
 ) -> io::Result<()>
 where
-    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+    S: AsyncStream + 'static,
 {
-    let peer = Endpoints { peer, local };
-    let (read_half, write_half) = tokio::io::split(stream);
-    let mut reader = BufReader::new(read_half);
-    let mut writer = write_half;
-    let mut session = Session::new(root);
+    let _ = bind_addr;
+    let ep = Endpoints {
+        peer,
+        local,
+        protocol,
+    };
+    let mut session = Session::new(root, protocol, tls.clone());
+    let mut stream: BoxedStream = Box::new(stream);
 
     emit(
         &events,
-        peer,
+        ep,
         EventKind::TcpOpen,
         Direction::ClientToServer,
         Vec::new(),
         "TCP handshake complete (SYN, SYN-ACK, ACK) - control connection established",
     );
-    send(
-        &mut writer,
-        peer,
-        &events,
-        "220 FTPeek FTP server ready.\r\n",
-    )
-    .await?;
+
+    if implicit_tls {
+        let upgrader = tls.as_ref().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "implicit FTPS needs a TLS upgrader",
+            )
+        })?;
+        let (secured, info) = upgrader.upgrade(stream).await?;
+        stream = secured;
+        session.tls_active = true;
+        session.prot_private = true;
+        emit(
+            &events,
+            ep,
+            EventKind::Tls,
+            Direction::ServerToClient,
+            Vec::new(),
+            format!(
+                "TLS handshake complete ({info}) - implicit FTPS, control connection encrypted"
+            ),
+        );
+    }
+
+    let (read_half, write_half) = tokio::io::split(stream);
+    let mut reader = BufReader::new(read_half);
+    let mut writer = write_half;
+
+    let banner = match protocol {
+        Protocol::Ftps => "220 FTPeek FTPS server ready.\r\n",
+        _ => "220 FTPeek FTP server ready.\r\n",
+    };
+    send(&mut writer, ep, &events, banner).await?;
 
     let mut line = String::new();
     loop {
@@ -75,17 +110,31 @@ where
         tokio::select! {
             result = reader.read_line(&mut line) => {
                 if result? == 0 {
-                    break; // client closed the connection
+                    break;
                 }
             }
             _ = shutdown.recv() => {
-                let _ = send(&mut writer, peer, &events, "421 Service not available, closing control connection.\r\n").await;
+                let _ = send(&mut writer, ep, &events, "421 Service not available, closing control connection.\r\n").await;
                 break;
             }
         }
-        log_incoming(peer, &events, &line);
+        log_incoming(ep, &events, &line);
 
         let cmd = Command::parse(&line);
+
+        if tls.is_some()
+            && !session.tls_active
+            && matches!(cmd, Command::User(_) | Command::Pass(_))
+        {
+            send(
+                &mut writer,
+                ep,
+                &events,
+                "530 Login requires a protected connection - issue AUTH TLS first.\r\n",
+            )
+            .await?;
+            continue;
+        }
 
         let requires_auth = !matches!(
             cmd,
@@ -98,10 +147,13 @@ where
                 | Command::Opts(_)
                 | Command::Host(_)
                 | Command::Auth(_)
+                | Command::Pbsz(_)
+                | Command::Prot(_)
+                | Command::Ccc
                 | Command::Help
         );
         if requires_auth && !session.authenticated {
-            send(&mut writer, peer, &events, "530 Not logged in.\r\n").await?;
+            send(&mut writer, ep, &events, "530 Not logged in.\r\n").await?;
             continue;
         }
 
@@ -110,7 +162,7 @@ where
                 session.username = Some(name.clone());
                 send(
                     &mut writer,
-                    peer,
+                    ep,
                     &events,
                     &format!("331 Password required for {name}.\r\n"),
                 )
@@ -119,34 +171,34 @@ where
             Command::Pass(_) => {
                 if session.username.is_some() {
                     session.authenticated = true;
-                    send(&mut writer, peer, &events, "230 User logged in.\r\n").await?;
+                    send(&mut writer, ep, &events, "230 User logged in.\r\n").await?;
                 } else {
-                    send(&mut writer, peer, &events, "503 Login with USER first.\r\n").await?;
+                    send(&mut writer, ep, &events, "503 Login with USER first.\r\n").await?;
                 }
             }
             Command::Host(name) => {
                 if session.authenticated {
                     send(
                         &mut writer,
-                        peer,
+                        ep,
                         &events,
                         "503 HOST not allowed after login.\r\n",
                     )
                     .await?;
                 } else {
                     session.host = Some(name);
-                    send(&mut writer, peer, &events, "220 Host accepted.\r\n").await?;
+                    send(&mut writer, ep, &events, "220 Host accepted.\r\n").await?;
                 }
             }
             Command::Quit => {
-                send(&mut writer, peer, &events, "221 Goodbye.\r\n").await?;
+                send(&mut writer, ep, &events, "221 Goodbye.\r\n").await?;
                 break;
             }
             Command::Pwd => {
                 let cwd = session.virtual_cwd();
                 send(
                     &mut writer,
-                    peer,
+                    ep,
                     &events,
                     &format!("257 \"{cwd}\" is the current directory.\r\n"),
                 )
@@ -163,9 +215,9 @@ where
                                 .to_string_lossy()
                                 .as_ref(),
                     );
-                    send(&mut writer, peer, &events, "250 Directory changed.\r\n").await?;
+                    send(&mut writer, ep, &events, "250 Directory changed.\r\n").await?;
                 } else {
-                    send(&mut writer, peer, &events, "550 No such directory.\r\n").await?;
+                    send(&mut writer, ep, &events, "550 No such directory.\r\n").await?;
                 }
             }
             Command::Cdup => {
@@ -178,75 +230,66 @@ where
                             .to_string_lossy()
                             .as_ref(),
                 );
-                send(&mut writer, peer, &events, "250 Directory changed.\r\n").await?;
+                send(&mut writer, ep, &events, "250 Directory changed.\r\n").await?;
             }
             Command::Type(t) => {
                 session.binary = t.eq_ignore_ascii_case("I");
-                send(&mut writer, peer, &events, "200 Type set.\r\n").await?;
+                send(&mut writer, ep, &events, "200 Type set.\r\n").await?;
             }
-            Command::Pasv => match open_passive(bind_addr, &pasv_range).await {
-                Ok((listener, port)) => {
-                    session.data_channel = DataChannel::Passive(listener);
-                    let ip = match bind_addr {
-                        IpAddr::V4(v4) => v4.octets(),
-                        IpAddr::V6(_) => [127, 0, 0, 1],
-                    };
-                    let reply = format!(
-                        "227 Entering Passive Mode ({},{},{},{},{},{}).\r\n",
-                        ip[0],
-                        ip[1],
-                        ip[2],
-                        ip[3],
-                        port >> 8,
-                        port & 0xFF
-                    );
-                    send(&mut writer, peer, &events, &reply).await?;
+            Command::Pasv => {
+                session.data_channel = DataChannel::None;
+                match open_passive(local.ip(), &pasv_range).await {
+                    Ok((listener, port)) => {
+                        session.data_channel = DataChannel::Passive(listener);
+                        let ip = match local.ip() {
+                            IpAddr::V4(v4) => v4.octets(),
+                            IpAddr::V6(_) => [127, 0, 0, 1],
+                        };
+                        let reply = format!(
+                            "227 Entering Passive Mode ({},{},{},{},{},{}).\r\n",
+                            ip[0],
+                            ip[1],
+                            ip[2],
+                            ip[3],
+                            port >> 8,
+                            port & 0xFF
+                        );
+                        send(&mut writer, ep, &events, &reply).await?;
+                    }
+                    Err(_) => {
+                        send(
+                            &mut writer,
+                            ep,
+                            &events,
+                            "425 Can't open passive connection.\r\n",
+                        )
+                        .await?;
+                    }
                 }
-                Err(_) => {
-                    send(
-                        &mut writer,
-                        peer,
-                        &events,
-                        "425 Can't open passive connection.\r\n",
-                    )
-                    .await?;
-                }
-            },
+            }
             Command::Port(arg) => {
                 if let Some(addr) = parse_port_arg(&arg) {
                     session.data_channel = DataChannel::Active(addr);
-                    send(
-                        &mut writer,
-                        peer,
-                        &events,
-                        "200 PORT command successful.\r\n",
-                    )
-                    .await?;
+                    send(&mut writer, ep, &events, "200 PORT command successful.\r\n").await?;
                 } else {
-                    send(
-                        &mut writer,
-                        peer,
-                        &events,
-                        "501 Malformed PORT argument.\r\n",
-                    )
-                    .await?;
+                    send(&mut writer, ep, &events, "501 Malformed PORT argument.\r\n").await?;
                 }
             }
             Command::List(path) | Command::Nlst(path) => {
                 let dir = session.resolve(path.as_deref().unwrap_or("."));
                 send(
                     &mut writer,
-                    peer,
+                    ep,
                     &events,
                     "150 Opening data connection for directory listing.\r\n",
                 )
                 .await?;
                 match send_listing(&mut session, &events, &dir, false).await {
-                    Ok(_) => send(&mut writer, peer, &events, "226 Transfer complete.\r\n").await?,
+                    Ok(_) => send(&mut writer, ep, &events, "226 Transfer complete.\r\n").await?,
                     Err(_) => {
                         send(
                             &mut writer,
-                            peer,
+                            ep,
                             &events,
                             "451 Failed to list directory.\r\n",
                         )
@@ -258,17 +301,17 @@ where
                 let dir = session.resolve(path.as_deref().unwrap_or("."));
                 send(
                     &mut writer,
-                    peer,
+                    ep,
                     &events,
                     "150 Opening data connection (MLSD).\r\n",
                 )
                 .await?;
                 match send_listing(&mut session, &events, &dir, true).await {
-                    Ok(_) => send(&mut writer, peer, &events, "226 Transfer complete.\r\n").await?,
+                    Ok(_) => send(&mut writer, ep, &events, "226 Transfer complete.\r\n").await?,
                     Err(_) => {
                         send(
                             &mut writer,
-                            peer,
+                            ep,
                             &events,
                             "451 Failed to list directory.\r\n",
                         )
@@ -285,14 +328,14 @@ where
                             .map(|n| n.to_string_lossy().to_string())
                             .unwrap_or_default();
                         let facts = format_mlsx_facts(&meta);
-                        send(&mut writer, peer, &events, "250-Listing:\r\n").await?;
-                        send(&mut writer, peer, &events, &format!(" {facts} {name}\r\n")).await?;
-                        send(&mut writer, peer, &events, "250 End.\r\n").await?;
+                        send(&mut writer, ep, &events, "250-Listing:\r\n").await?;
+                        send(&mut writer, ep, &events, &format!(" {facts} {name}\r\n")).await?;
+                        send(&mut writer, ep, &events, "250 End.\r\n").await?;
                     }
                     Err(_) => {
                         send(
                             &mut writer,
-                            peer,
+                            ep,
                             &events,
                             "550 No such file or directory.\r\n",
                         )
@@ -304,15 +347,15 @@ where
                 let target = session.resolve(&path);
                 send(
                     &mut writer,
-                    peer,
+                    ep,
                     &events,
                     "150 Opening data connection for RETR.\r\n",
                 )
                 .await?;
                 match send_file(&mut session, &events, &target).await {
-                    Ok(_) => send(&mut writer, peer, &events, "226 Transfer complete.\r\n").await?,
+                    Ok(_) => send(&mut writer, ep, &events, "226 Transfer complete.\r\n").await?,
                     Err(_) => {
-                        send(&mut writer, peer, &events, "550 Failed to open file.\r\n").await?
+                        send(&mut writer, ep, &events, "550 Failed to open file.\r\n").await?
                     }
                 }
                 session.rest_offset = 0;
@@ -322,23 +365,23 @@ where
                 let append = matches!(cmd, Command::Appe(_));
                 send(
                     &mut writer,
-                    peer,
+                    ep,
                     &events,
                     "150 Opening data connection for upload.\r\n",
                 )
                 .await?;
                 match receive_file(&mut session, &events, &target, append).await {
-                    Ok(_) => send(&mut writer, peer, &events, "226 Transfer complete.\r\n").await?,
+                    Ok(_) => send(&mut writer, ep, &events, "226 Transfer complete.\r\n").await?,
                     Err(_) => {
-                        send(&mut writer, peer, &events, "550 Failed to write file.\r\n").await?
+                        send(&mut writer, ep, &events, "550 Failed to write file.\r\n").await?
                     }
                 }
             }
             Command::Dele(path) => {
                 let target = session.resolve(&path);
                 match fs::remove_file(&target).await {
-                    Ok(_) => send(&mut writer, peer, &events, "250 File deleted.\r\n").await?,
-                    Err(_) => send(&mut writer, peer, &events, "550 Delete failed.\r\n").await?,
+                    Ok(_) => send(&mut writer, ep, &events, "250 File deleted.\r\n").await?,
+                    Err(_) => send(&mut writer, ep, &events, "550 Delete failed.\r\n").await?,
                 }
             }
             Command::Mkd(path) => {
@@ -347,70 +390,50 @@ where
                     Ok(_) => {
                         send(
                             &mut writer,
-                            peer,
+                            ep,
                             &events,
                             &format!("257 \"{path}\" created.\r\n"),
                         )
                         .await?
                     }
                     Err(_) => {
-                        send(
-                            &mut writer,
-                            peer,
-                            &events,
-                            "550 Create directory failed.\r\n",
-                        )
-                        .await?
+                        send(&mut writer, ep, &events, "550 Create directory failed.\r\n").await?
                     }
                 }
             }
             Command::Rmd(path) => {
                 let target = session.resolve(&path);
                 match fs::remove_dir(&target).await {
-                    Ok(_) => send(&mut writer, peer, &events, "250 Directory removed.\r\n").await?,
+                    Ok(_) => send(&mut writer, ep, &events, "250 Directory removed.\r\n").await?,
                     Err(_) => {
-                        send(
-                            &mut writer,
-                            peer,
-                            &events,
-                            "550 Remove directory failed.\r\n",
-                        )
-                        .await?
+                        send(&mut writer, ep, &events, "550 Remove directory failed.\r\n").await?
                     }
                 }
             }
             Command::Rnfr(path) => {
                 session.rename_from = Some(session.resolve(&path));
-                send(&mut writer, peer, &events, "350 Ready for RNTO.\r\n").await?;
+                send(&mut writer, ep, &events, "350 Ready for RNTO.\r\n").await?;
             }
             Command::Rnto(path) => {
                 if let Some(from) = session.rename_from.take() {
                     let to = session.resolve(&path);
                     match fs::rename(&from, &to).await {
                         Ok(_) => {
-                            send(&mut writer, peer, &events, "250 Rename successful.\r\n").await?
+                            send(&mut writer, ep, &events, "250 Rename successful.\r\n").await?
                         }
-                        Err(_) => {
-                            send(&mut writer, peer, &events, "550 Rename failed.\r\n").await?
-                        }
+                        Err(_) => send(&mut writer, ep, &events, "550 Rename failed.\r\n").await?,
                     }
                 } else {
-                    send(&mut writer, peer, &events, "503 RNFR required first.\r\n").await?;
+                    send(&mut writer, ep, &events, "503 RNFR required first.\r\n").await?;
                 }
             }
             Command::Size(path) => {
                 let target = session.resolve(&path);
                 match fs::metadata(&target).await {
                     Ok(meta) => {
-                        send(
-                            &mut writer,
-                            peer,
-                            &events,
-                            &format!("213 {}\r\n", meta.len()),
-                        )
-                        .await?
+                        send(&mut writer, ep, &events, &format!("213 {}\r\n", meta.len())).await?
                     }
-                    Err(_) => send(&mut writer, peer, &events, "550 No such file.\r\n").await?,
+                    Err(_) => send(&mut writer, ep, &events, "550 No such file.\r\n").await?,
                 }
             }
             Command::Mdtm(path) => {
@@ -419,76 +442,173 @@ where
                     Ok(meta) => {
                         send(
                             &mut writer,
-                            peer,
+                            ep,
                             &events,
                             &format!("213 {}\r\n", format_mdtm(&meta)),
                         )
                         .await?
                     }
-                    Err(_) => send(&mut writer, peer, &events, "550 No such file.\r\n").await?,
+                    Err(_) => send(&mut writer, ep, &events, "550 No such file.\r\n").await?,
                 }
             }
             Command::Rest(offset) => {
                 session.rest_offset = offset;
                 send(
                     &mut writer,
-                    peer,
+                    ep,
                     &events,
                     &format!("350 Restarting at {offset}.\r\n"),
                 )
                 .await?;
             }
             Command::Feat => {
-                send(&mut writer, peer, &events, "211-Features:\r\n").await?;
+                send(&mut writer, ep, &events, "211-Features:\r\n").await?;
                 for feature in FEATURES {
-                    send(&mut writer, peer, &events, &format!(" {feature}\r\n")).await?;
+                    send(&mut writer, ep, &events, &format!(" {feature}\r\n")).await?;
                 }
-                send(&mut writer, peer, &events, "211 End.\r\n").await?;
+                if tls.is_some() {
+                    for feature in ["AUTH TLS", "PBSZ", "PROT"] {
+                        send(&mut writer, ep, &events, &format!(" {feature}\r\n")).await?;
+                    }
+                }
+                send(&mut writer, ep, &events, "211 End.\r\n").await?;
             }
             Command::Opts(arg) => {
                 if arg.eq_ignore_ascii_case("UTF8 ON") {
-                    send(&mut writer, peer, &events, "200 UTF8 mode enabled.\r\n").await?;
+                    send(&mut writer, ep, &events, "200 UTF8 mode enabled.\r\n").await?;
                 } else {
-                    send(&mut writer, peer, &events, "501 Option not recognized.\r\n").await?;
+                    send(&mut writer, ep, &events, "501 Option not recognized.\r\n").await?;
                 }
             }
-            Command::Syst => send(&mut writer, peer, &events, "215 UNIX Type: L8\r\n").await?,
-            Command::Noop => send(&mut writer, peer, &events, "200 NOOP ok.\r\n").await?,
+            Command::Syst => send(&mut writer, ep, &events, "215 UNIX Type: L8\r\n").await?,
+            Command::Noop => send(&mut writer, ep, &events, "200 NOOP ok.\r\n").await?,
             Command::Help => {
                 send(
                     &mut writer,
-                    peer,
+                    ep,
                     &events,
-                    "214 Commands: see RFC 959, RFC 3659.\r\n",
+                    "214 Commands: see RFC 959, RFC 3659, RFC 4217.\r\n",
                 )
                 .await?
             }
-            Command::Abor => send(&mut writer, peer, &events, "226 Abort successful.\r\n").await?,
-            Command::Auth(_) => {
-                // AUTH TLS is handled by proto-ftps, which wraps this same
-                // command loop with a TLS-capable listener. Plain FTP has
-                // nothing to upgrade to.
+            Command::Abor => send(&mut writer, ep, &events, "226 Abort successful.\r\n").await?,
+
+            Command::Auth(_) | Command::Pbsz(_) | Command::Prot(_) | Command::Ccc
+                if tls.is_none() =>
+            {
                 send(
                     &mut writer,
-                    peer,
+                    ep,
                     &events,
-                    "502 AUTH not supported on this listener.\r\n",
+                    "502 Security extensions are not available on this listener.\r\n",
                 )
                 .await?;
             }
-            Command::Pbsz(_) | Command::Prot(_) => {
+            Command::Auth(mechanism) => {
+                let mechanism = mechanism.to_ascii_uppercase();
+                if session.tls_active {
+                    send(&mut writer, ep, &events, "503 TLS is already active.\r\n").await?;
+                } else if mechanism != "TLS" && mechanism != "TLS-C" {
+                    send(
+                        &mut writer,
+                        ep,
+                        &events,
+                        "504 Only AUTH TLS is supported.\r\n",
+                    )
+                    .await?;
+                } else if !reader.buffer().is_empty() {
+                    send(
+                        &mut writer,
+                        ep,
+                        &events,
+                        "503 Unexpected data after AUTH.\r\n",
+                    )
+                    .await?;
+                } else if let Some(upgrader) = tls.as_ref() {
+                    send(
+                        &mut writer,
+                        ep,
+                        &events,
+                        "234 AUTH TLS successful - starting TLS handshake.\r\n",
+                    )
+                    .await?;
+                    let plain = reader.into_inner().unsplit(writer);
+                    let (secured, info) = upgrader.upgrade(plain).await?;
+                    let (read_half, write_half) = tokio::io::split(secured);
+                    reader = BufReader::new(read_half);
+                    writer = write_half;
+                    session.tls_active = true;
+                    session.pbsz_done = false;
+                    session.prot_private = false;
+                    emit(
+                        &events,
+                        ep,
+                        EventKind::Tls,
+                        Direction::ServerToClient,
+                        Vec::new(),
+                        format!("TLS handshake complete ({info}) - control connection encrypted"),
+                    );
+                }
+            }
+            Command::Pbsz(_) => {
+                if session.tls_active {
+                    session.pbsz_done = true;
+                    send(&mut writer, ep, &events, "200 PBSZ=0\r\n").await?;
+                } else {
+                    send(
+                        &mut writer,
+                        ep,
+                        &events,
+                        "503 PBSZ requires AUTH TLS first.\r\n",
+                    )
+                    .await?;
+                }
+            }
+            Command::Prot(level) => {
+                if !session.pbsz_done {
+                    send(
+                        &mut writer,
+                        ep,
+                        &events,
+                        "503 PROT requires PBSZ first.\r\n",
+                    )
+                    .await?;
+                } else {
+                    match level.to_ascii_uppercase().as_str() {
+                        "C" => {
+                            session.prot_private = false;
+                            send(&mut writer, ep, &events, "200 PROT now Clear.\r\n").await?;
+                        }
+                        "P" => {
+                            session.prot_private = true;
+                            send(&mut writer, ep, &events, "200 PROT now Private.\r\n").await?;
+                        }
+                        "S" | "E" => {
+                            send(
+                                &mut writer,
+                                ep,
+                                &events,
+                                "536 Requested PROT level not supported by mechanism.\r\n",
+                            )
+                            .await?;
+                        }
+                        _ => send(&mut writer, ep, &events, "504 Unknown PROT level.\r\n").await?,
+                    }
+                }
+            }
+            Command::Ccc => {
                 send(
                     &mut writer,
-                    peer,
+                    ep,
                     &events,
-                    "502 Command only valid after AUTH TLS.\r\n",
+                    "534 Clearing the command channel is not permitted.\r\n",
                 )
                 .await?;
             }
             Command::Unknown(verb) => {
                 send(
                     &mut writer,
-                    peer,
+                    ep,
                     &events,
                     &format!("502 Command '{verb}' not implemented.\r\n"),
                 )
@@ -499,7 +619,7 @@ where
 
     emit(
         &events,
-        peer,
+        ep,
         EventKind::TcpClose,
         Direction::ClientToServer,
         Vec::new(),
@@ -547,7 +667,7 @@ fn emit(
     parsed: impl Into<String>,
 ) {
     let _ = events.send(MessageEvent::new(
-        Protocol::Ftp,
+        ep.protocol,
         kind,
         direction,
         ep.peer,
@@ -566,7 +686,7 @@ fn emit_data(
 ) {
     let _ = events.send(
         MessageEvent::new(
-            Protocol::Ftp,
+            ep.protocol,
             EventKind::Data,
             direction,
             ep.peer,
@@ -581,10 +701,11 @@ fn emit_data(
 async fn open_data_connection(
     session: &mut Session,
     events: &EventSender,
-) -> io::Result<(TcpStream, Endpoints)> {
-    let (stream, opener) = match &mut session.data_channel {
+) -> io::Result<(BoxedStream, Endpoints)> {
+    let channel = std::mem::replace(&mut session.data_channel, DataChannel::None);
+    let (tcp, opener) = match channel {
         DataChannel::Passive(listener) => (listener.accept().await?.0, Direction::ClientToServer),
-        DataChannel::Active(addr) => (TcpStream::connect(*addr).await?, Direction::ServerToClient),
+        DataChannel::Active(addr) => (TcpStream::connect(addr).await?, Direction::ServerToClient),
         DataChannel::None => {
             return Err(io::Error::new(
                 io::ErrorKind::NotConnected,
@@ -593,8 +714,9 @@ async fn open_data_connection(
         }
     };
     let ep = Endpoints {
-        peer: stream.peer_addr()?,
-        local: stream.local_addr()?,
+        peer: tcp.peer_addr()?,
+        local: tcp.local_addr()?,
+        protocol: session.protocol,
     };
     emit(
         events,
@@ -604,7 +726,34 @@ async fn open_data_connection(
         Vec::new(),
         "TCP handshake complete (SYN, SYN-ACK, ACK) - data connection established",
     );
-    Ok((stream, ep))
+
+    let mut data: BoxedStream = Box::new(tcp);
+    if session.prot_private {
+        if let Some(upgrader) = &session.tls {
+            let (secured, info) = upgrader.upgrade(data).await?;
+            data = secured;
+            emit(
+                events,
+                ep,
+                EventKind::Tls,
+                Direction::ServerToClient,
+                Vec::new(),
+                format!("TLS handshake complete ({info}) - data connection encrypted"),
+            );
+        }
+    }
+    Ok((data, ep))
+}
+
+fn emit_close(events: &EventSender, ep: Endpoints, direction: Direction) {
+    emit(
+        events,
+        ep,
+        EventKind::TcpClose,
+        direction,
+        Vec::new(),
+        "TCP data connection closed",
+    );
 }
 
 async fn send_listing(
@@ -627,6 +776,7 @@ async fn send_listing(
         }
     }
     data.write_all(out.as_bytes()).await?;
+    data.shutdown().await.ok();
     emit(
         events,
         ep,
@@ -635,25 +785,18 @@ async fn send_listing(
         out.as_bytes().to_vec(),
         format!("Directory listing ({} bytes)", out.len()),
     );
-    emit(
-        events,
-        ep,
-        EventKind::TcpClose,
-        Direction::ServerToClient,
-        Vec::new(),
-        "TCP data connection closed",
-    );
+    emit_close(events, ep, Direction::ServerToClient);
     Ok(())
 }
 
 async fn send_file(session: &mut Session, events: &EventSender, path: &PathBuf) -> io::Result<()> {
     let mut file = fs::File::open(path).await?;
     if session.rest_offset > 0 {
-        use tokio::io::AsyncSeekExt;
         file.seek(io::SeekFrom::Start(session.rest_offset)).await?;
     }
     let (mut data, ep) = open_data_connection(session, events).await?;
     let bytes = tokio::io::copy(&mut file, &mut data).await?;
+    data.shutdown().await.ok();
     emit_data(
         events,
         ep,
@@ -661,14 +804,7 @@ async fn send_file(session: &mut Session, events: &EventSender, path: &PathBuf) 
         bytes as usize,
         format!("File data sent ({bytes} bytes)"),
     );
-    emit(
-        events,
-        ep,
-        EventKind::TcpClose,
-        Direction::ServerToClient,
-        Vec::new(),
-        "TCP data connection closed",
-    );
+    emit_close(events, ep, Direction::ServerToClient);
     Ok(())
 }
 
@@ -688,7 +824,8 @@ async fn receive_file(
         fs::File::create(path).await?
     };
     let (mut data, ep) = open_data_connection(session, events).await?;
-    let bytes = tokio::io::copy(&mut data, &mut file).await?;
+    let bytes = copy_until_eof(&mut data, &mut file).await?;
+    file.flush().await?;
     emit_data(
         events,
         ep,
@@ -696,15 +833,28 @@ async fn receive_file(
         bytes as usize,
         format!("File data received ({bytes} bytes)"),
     );
-    emit(
-        events,
-        ep,
-        EventKind::TcpClose,
-        Direction::ClientToServer,
-        Vec::new(),
-        "TCP data connection closed",
-    );
+    emit_close(events, ep, Direction::ClientToServer);
     Ok(())
+}
+
+async fn copy_until_eof<R, W>(reader: &mut R, writer: &mut W) -> io::Result<u64>
+where
+    R: AsyncReadExt + Unpin,
+    W: AsyncWriteExt + Unpin,
+{
+    let mut buf = vec![0u8; 16 * 1024];
+    let mut total = 0u64;
+    loop {
+        let n = match reader.read(&mut buf).await {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => break,
+            Err(e) => return Err(e),
+        };
+        writer.write_all(&buf[..n]).await?;
+        total += n as u64;
+    }
+    Ok(total)
 }
 
 async fn send(
@@ -714,6 +864,7 @@ async fn send(
     line: &str,
 ) -> io::Result<()> {
     writer.write_all(line.as_bytes()).await?;
+    writer.flush().await?;
     emit(
         events,
         ep,

@@ -22,6 +22,7 @@ pub enum EventKind {
     Data,
     TcpOpen,
     TcpClose,
+    Tls,
 }
 
 #[derive(Debug, Clone)]

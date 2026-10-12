@@ -1,6 +1,11 @@
 use std::net::SocketAddr;
 use std::path::{Component, Path, PathBuf};
+
 use tokio::net::TcpListener;
+
+use proto_core::Protocol;
+
+use crate::tls::TlsUpgrader;
 
 pub enum DataChannel {
     None,
@@ -11,6 +16,7 @@ pub enum DataChannel {
 pub struct Session {
     pub root: PathBuf,
     pub cwd: PathBuf,
+    pub protocol: Protocol,
     pub username: Option<String>,
     pub authenticated: bool,
     pub host: Option<String>,
@@ -18,13 +24,18 @@ pub struct Session {
     pub binary: bool,
     pub rename_from: Option<PathBuf>,
     pub rest_offset: u64,
+    pub tls: Option<TlsUpgrader>,
+    pub tls_active: bool,
+    pub pbsz_done: bool,
+    pub prot_private: bool,
 }
 
 impl Session {
-    pub fn new(root: PathBuf) -> Self {
+    pub fn new(root: PathBuf, protocol: Protocol, tls: Option<TlsUpgrader>) -> Self {
         Session {
             root,
             cwd: PathBuf::from("/"),
+            protocol,
             username: None,
             authenticated: false,
             host: None,
@@ -32,6 +43,10 @@ impl Session {
             binary: true,
             rename_from: None,
             rest_offset: 0,
+            tls,
+            tls_active: false,
+            pbsz_done: false,
+            prot_private: false,
         }
     }
 

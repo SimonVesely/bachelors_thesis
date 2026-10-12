@@ -33,6 +33,7 @@ pub enum Command {
     Auth(String),
     Pbsz(String),
     Prot(String),
+    Ccc,
     Host(String),
     Unknown(String),
 }
@@ -78,6 +79,7 @@ impl Command {
             "AUTH" => Command::Auth(arg),
             "PBSZ" => Command::Pbsz(arg),
             "PROT" => Command::Prot(arg),
+            "CCC" => Command::Ccc,
             "HOST" => Command::Host(arg),
             other => Command::Unknown(other.to_string()),
         }
