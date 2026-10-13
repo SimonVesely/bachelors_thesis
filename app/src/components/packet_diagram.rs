@@ -34,9 +34,17 @@ fn render_diagram(e: &MessageEvent) -> Element {
         EventKind::TcpClose => "TCP CLOSE",
         EventKind::Data => "DATA",
         EventKind::Message => "MESSAGE",
+        EventKind::Tls => "TLS HANDSHAKE",
     };
     let proto_label = format!("{:?}", e.protocol);
     let len_label = format!("{} B", e.length);
+
+    let (sec_label, sec_fill) = match e.kind {
+        EventKind::TcpOpen | EventKind::TcpClose => ("N/A (TCP)", "#8a8d93"),
+        EventKind::Tls => ("TLS HANDSHAKE", "#7b2fb0"),
+        _ if e.encrypted => ("TLS ENCRYPTED", "#5b2a86"),
+        _ => ("PLAINTEXT", "#c0392b"),
+    };
 
     let (src, dst) = match e.direction {
         Direction::ClientToServer => (e.peer, e.local),
@@ -50,6 +58,11 @@ fn render_diagram(e: &MessageEvent) -> Element {
         Err(_) => "unknown".to_string(),
     };
 
+    let data_title = if e.encrypted {
+        "DATA (decrypted view - TLS on the wire)"
+    } else {
+        "DATA (variable)"
+    };
     let payload = e.parsed.clone().unwrap_or_default();
     let payload_short = if payload.chars().count() > 52 {
         let truncated: String = payload.chars().take(49).collect();
@@ -112,12 +125,16 @@ fn render_diagram(e: &MessageEvent) -> Element {
             text { x: "280", y: "120", "text-anchor": "middle", "font-size": "9", "font-weight": "700", fill: "#ffffff", "DESTINATION ADDRESS" }
             text { x: "280", y: "136", "text-anchor": "middle", "font-size": "12", "font-weight": "700", fill: "#ffffff", "{dst_label}" }
 
-            rect { x: "20", y: "144", width: "520", height: "38", fill: "#3f9169", stroke: "#16171a", "stroke-width": "1" }
-            text { x: "280", y: "158", "text-anchor": "middle", "font-size": "9", "font-weight": "700", fill: "#ffffff", "TIMESTAMP" }
-            text { x: "280", y: "174", "text-anchor": "middle", "font-size": "12", "font-weight": "700", fill: "#ffffff", "{ts_label}" }
+            rect { x: "20", y: "144", width: "260", height: "38", fill: "#3f9169", stroke: "#16171a", "stroke-width": "1" }
+            text { x: "150", y: "158", "text-anchor": "middle", "font-size": "9", "font-weight": "700", fill: "#ffffff", "TIMESTAMP" }
+            text { x: "150", y: "174", "text-anchor": "middle", "font-size": "12", "font-weight": "700", fill: "#ffffff", "{ts_label}" }
+
+            rect { x: "280", y: "144", width: "260", height: "38", fill: sec_fill, stroke: "#16171a", "stroke-width": "1" }
+            text { x: "410", y: "158", "text-anchor": "middle", "font-size": "9", "font-weight": "700", fill: "#ffffff", "SECURITY" }
+            text { x: "410", y: "174", "text-anchor": "middle", "font-size": "12", "font-weight": "700", fill: "#ffffff", "{sec_label}" }
 
             rect { x: "20", y: "182", width: "520", height: "48", fill: "#fff3c4", stroke: "#16171a", "stroke-width": "1" }
-            text { x: "280", y: "197", "text-anchor": "middle", "font-size": "9", "font-weight": "700", fill: "#5c4b00", "DATA (variable)" }
+            text { x: "280", y: "197", "text-anchor": "middle", "font-size": "9", "font-weight": "700", fill: "#5c4b00", "{data_title}" }
             text { x: "280", y: "216", "text-anchor": "middle", "font-size": "11", fill: "#3a2f00", "{payload_short}" }
         }
     }

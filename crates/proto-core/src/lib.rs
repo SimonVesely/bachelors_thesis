@@ -1,5 +1,4 @@
-use std::net::IpAddr;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::time::SystemTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,6 +35,7 @@ pub struct MessageEvent {
     pub raw: Vec<u8>,
     pub length: usize,
     pub parsed: Option<String>,
+    pub encrypted: bool,
 }
 
 impl MessageEvent {
@@ -59,7 +59,13 @@ impl MessageEvent {
             raw,
             length,
             parsed: Some(parsed.into()),
+            encrypted: false,
         }
+    }
+
+    pub fn with_encrypted(mut self, encrypted: bool) -> Self {
+        self.encrypted = encrypted;
+        self
     }
 
     pub fn with_length(mut self, length: usize) -> Self {
@@ -68,17 +74,17 @@ impl MessageEvent {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NetInterface {
-    pub name: String,
-    pub ip: IpAddr,
-}
-
 pub type EventSender = tokio::sync::mpsc::UnboundedSender<MessageEvent>;
 pub type EventReceiver = tokio::sync::mpsc::UnboundedReceiver<MessageEvent>;
 
 pub fn event_channel() -> (EventSender, EventReceiver) {
     tokio::sync::mpsc::unbounded_channel()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetInterface {
+    pub name: String,
+    pub ip: IpAddr,
 }
 
 pub fn list_interfaces() -> Vec<NetInterface> {

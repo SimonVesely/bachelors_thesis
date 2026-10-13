@@ -7,15 +7,16 @@ struct Row {
     time: String,
     src: String,
     dst: String,
-    proto: &'static str,
+    proto: String,
     len: usize,
     info: String,
     end_of_group: bool,
 }
 
-fn proto_label(e: &MessageEvent) -> &'static str {
-    match (e.kind, e.protocol) {
-        (EventKind::TcpOpen | EventKind::TcpClose, _) => "TCP",
+fn proto_label(e: &MessageEvent) -> String {
+    let base = match (e.kind, e.protocol) {
+        (EventKind::TcpOpen | EventKind::TcpClose, _) => return "TCP".to_string(),
+        (EventKind::Tls, _) => return "TLS".to_string(),
         (EventKind::Data, Protocol::Ftp) => "FTP-DATA",
         (EventKind::Data, Protocol::Ftps) => "FTPS-DATA",
         (EventKind::Data, Protocol::Tftp) => "TFTP",
@@ -24,6 +25,11 @@ fn proto_label(e: &MessageEvent) -> &'static str {
         (EventKind::Message, Protocol::Ftps) => "FTPS",
         (EventKind::Message, Protocol::Tftp) => "TFTP",
         (EventKind::Message, Protocol::Sftp) => "SFTP",
+    };
+    if e.encrypted {
+        format!("{base}+TLS")
+    } else {
+        base.to_string()
     }
 }
 
@@ -83,9 +89,13 @@ pub fn PacketLog(logs: Signal<Vec<MessageEvent>>, selected: Signal<Option<usize>
                 };
                 let mut class = match (e.kind, e.direction) {
                     (EventKind::TcpOpen | EventKind::TcpClose, _) => "pkt--tcp".to_string(),
+                    (EventKind::Tls, _) => "pkt--tls".to_string(),
                     (_, Direction::ClientToServer) => "pkt--in".to_string(),
                     (_, Direction::ServerToClient) => "pkt--out".to_string(),
                 };
+                if e.encrypted {
+                    class.push_str(" pkt--enc");
+                }
                 if current == Some(i) {
                     class.push_str(" pkt--selected");
                 }

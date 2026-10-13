@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use proto_core::MessageEvent;
+use proto_core::{EventKind, MessageEvent};
 
 struct DetailView {
     frame_title: String,
@@ -12,12 +12,30 @@ struct DetailView {
     protocol_title: String,
     info: String,
     hex: String,
+    hex_label: &'static str,
+    show_app: bool,
+    tls_rows: Vec<(&'static str, String)>,
 }
 
 fn build_view(idx: usize, e: &MessageEvent) -> DetailView {
     let timestamp = match e.timestamp.duration_since(std::time::UNIX_EPOCH) {
         Ok(d) => format!("{:.6}", d.as_secs_f64()),
         Err(_) => "unknown".to_string(),
+    };
+    let info = e.parsed.clone().unwrap_or_default();
+
+    let tls_rows = if e.kind == EventKind::Tls {
+        vec![("Handshake", info.clone())]
+    } else if e.encrypted {
+        vec![
+            ("Record layer", "Application Data (encrypted)".to_string()),
+            (
+                "In this view",
+                "Decrypted by the server - on the wire this is ciphertext".to_string(),
+            ),
+        ]
+    } else {
+        Vec::new()
     };
 
     DetailView {
@@ -29,8 +47,15 @@ fn build_view(idx: usize, e: &MessageEvent) -> DetailView {
         peer: e.peer.to_string(),
         local: e.local.to_string(),
         protocol_title: format!("Application ({:?})", e.protocol),
-        info: e.parsed.clone().unwrap_or_default(),
+        info,
         hex: hex_dump(&e.raw),
+        hex_label: if e.encrypted {
+            "Raw bytes (decrypted)"
+        } else {
+            "Raw bytes"
+        },
+        show_app: !matches!(e.kind, EventKind::Tls),
+        tls_rows,
     }
 }
 
@@ -41,6 +66,7 @@ pub fn PacketDetail(logs: Signal<Vec<MessageEvent>>, selected: Signal<Option<usi
 
     let mut frame_open = use_signal(|| true);
     let mut transport_open = use_signal(|| true);
+    let mut tls_open = use_signal(|| true);
     let mut app_open = use_signal(|| true);
 
     rsx! {
@@ -81,20 +107,43 @@ pub fn PacketDetail(logs: Signal<Vec<MessageEvent>>, selected: Signal<Option<usi
                             }
                         }
 
-                        div { class: "detail-section",
-                            div {
-                                class: "detail-section__title",
-                                onclick: move |_| app_open.toggle(),
-                                span { class: "detail-section__arrow", if app_open() { "\u{25be}" } else { "\u{25b8}" } }
-                                "{v.protocol_title}"
+                        if !v.tls_rows.is_empty() {
+                            div { class: "detail-section",
+                                div {
+                                    class: "detail-section__title",
+                                    onclick: move |_| tls_open.toggle(),
+                                    span { class: "detail-section__arrow", if tls_open() { "\u{25be}" } else { "\u{25b8}" } }
+                                    "Transport Layer Security"
+                                }
+                                if tls_open() {
+                                    div { class: "detail-section__body",
+                                        for (label, value) in v.tls_rows.iter() {
+                                            div { key: "{label}", class: "detail-row",
+                                                span { class: "detail-row__label", "{label}" }
+                                                span { class: "detail-row__value", "{value}" }
+                                            }
+                                        }
+                                    }
+                                }
                             }
-                            if app_open() {
-                                div { class: "detail-section__body",
-                                    div { class: "detail-row", span { class: "detail-row__label", "Info" } span { class: "detail-row__value", "{v.info}" } }
-                                    if !v.hex.is_empty() {
-                                        div { class: "detail-hex",
-                                            div { class: "detail-hex__label", "Raw bytes" }
-                                            pre { class: "detail-hex__pre", "{v.hex}" }
+                        }
+
+                        if v.show_app {
+                            div { class: "detail-section",
+                                div {
+                                    class: "detail-section__title",
+                                    onclick: move |_| app_open.toggle(),
+                                    span { class: "detail-section__arrow", if app_open() { "\u{25be}" } else { "\u{25b8}" } }
+                                    "{v.protocol_title}"
+                                }
+                                if app_open() {
+                                    div { class: "detail-section__body",
+                                        div { class: "detail-row", span { class: "detail-row__label", "Info" } span { class: "detail-row__value", "{v.info}" } }
+                                        if !v.hex.is_empty() {
+                                            div { class: "detail-hex",
+                                                div { class: "detail-hex__label", "{v.hex_label}" }
+                                                pre { class: "detail-hex__pre", "{v.hex}" }
+                                            }
                                         }
                                     }
                                 }

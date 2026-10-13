@@ -100,6 +100,7 @@ dependencies = [
  "dioxus-desktop",
  "proto-core",
  "proto-ftp",
+ "proto-ftps",
  "rfd",
  "tokio",
  "tracing",

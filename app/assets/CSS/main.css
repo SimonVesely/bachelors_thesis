@@ -351,9 +351,12 @@ body {
 .packet-table col.col-time  { width: 76px; }
 .packet-table col.col-src   { width: 130px; }
 .packet-table col.col-dst   { width: 130px; }
-.packet-table col.col-proto { width: 72px; }
+.packet-table col.col-proto { width: 104px; }
 .packet-table col.col-len   { width: 56px; }
 .packet-table col.col-info  { width: auto; }
+.pkt--tls { background: #efe3fb; color: #3b1466; }
+.pkt--enc td:first-child { box-shadow: inset 4px 0 0 #7b2fb0; }
+.status-hint { grid-column: 1 / -1; margin: 0; font-size: 0.75rem; color: #55585f; }
 
 .packet-table th,
 .packet-table td {
