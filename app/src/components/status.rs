@@ -5,7 +5,8 @@ use dioxus::prelude::*;
 use tokio::sync::broadcast;
 
 use proto_core::{event_channel, MessageEvent};
-use proto_ftp::{serve, FtpServerConfig};
+use proto_ftp::FtpServerConfig;
+use proto_ftps::{FtpsMode, FtpsServerConfig};
 
 use super::{DirectoryPreview, PacketDetail, PacketDiagram, PacketLog};
 use crate::{AppState, Route};
@@ -22,8 +23,18 @@ pub fn Status(mode: String, protocol: String) -> Element {
     let selected = use_signal(|| None::<usize>);
     let mut error_msg = use_signal(|| None::<String>);
     let mut shutdown_tx = use_signal(|| None::<broadcast::Sender<()>>);
+    let mut ftps_implicit = use_signal(|| false);
 
-    let is_ftp_server = mode == "server" && protocol == "ftp";
+    let is_ftps = protocol == "ftps";
+    let is_supported = mode == "server" && (protocol == "ftp" || is_ftps);
+
+    let protocol_label = if !is_ftps {
+        "FTP"
+    } else if ftps_implicit() {
+        "FTPS (implicit)"
+    } else {
+        "FTPS (explicit)"
+    };
 
     let start_server = move |_| {
         let bind_ip: IpAddr = state
@@ -51,9 +62,27 @@ pub fn Status(mode: String, protocol: String) -> Element {
             pasv_port_end: dtp_port(),
             root_dir: root,
         };
+        let ftps_mode = if ftps_implicit() {
+            FtpsMode::Implicit
+        } else {
+            FtpsMode::Explicit
+        };
 
         spawn(async move {
-            if let Err(err) = serve(cfg, tx, shutdown_recv).await {
+            let result = if is_ftps {
+                proto_ftps::serve(
+                    FtpsServerConfig {
+                        ftp: cfg,
+                        mode: ftps_mode,
+                    },
+                    tx,
+                    shutdown_recv,
+                )
+                .await
+            } else {
+                proto_ftp::serve(cfg, tx, shutdown_recv).await
+            };
+            if let Err(err) = result {
                 error_msg.set(Some(format!("Server error: {err}")));
             }
             running.set(false);
@@ -80,9 +109,9 @@ pub fn Status(mode: String, protocol: String) -> Element {
             Link { class: "back-link", to: Route::ModeSelect {}, "\u{2190} start over" }
             h2 { class: "section-title", "Session status" }
 
-            if !is_ftp_server {
+            if !is_supported {
                 p { class: "section-subtitle",
-                    "Only the FTP server is wired up so far - {protocol} for {mode} isn't running yet."
+                    "Only the FTP and FTPS servers are wired up so far - {protocol} for {mode} isn't running yet."
                 }
             } else {
                 div { class: "status-grid",
@@ -94,7 +123,7 @@ pub fn Status(mode: String, protocol: String) -> Element {
                             }
                             div { class: "status-summary__item",
                                 span { class: "status-summary__label", "Protocol" }
-                                span { class: "status-summary__value", "FTP" }
+                                span { class: "status-summary__value", "{protocol_label}" }
                             }
                             div { class: "status-summary__item",
                                 span { class: "status-summary__label", "State" }
@@ -108,6 +137,27 @@ pub fn Status(mode: String, protocol: String) -> Element {
                                     button { class: "btn btn--primary", onclick: start_server, "Start server" }
                                 } else {
                                     button { class: "btn btn--danger", onclick: stop_server, "Stop server" }
+                                }
+                            }
+                            if is_ftps {
+                                div { class: "status-summary__item status-summary__item--wide",
+                                    span { class: "status-summary__label", "FTPS mode" }
+                                    select {
+                                        class: "status-summary__input",
+                                        disabled: running(),
+                                        value: if ftps_implicit() { "implicit" } else { "explicit" },
+                                        onchange: move |e| {
+                                            let implicit = e.value() == "implicit";
+                                            ftps_implicit.set(implicit);
+                                            if implicit && pi_port() == 21 {
+                                                pi_port.set(990);
+                                            } else if !implicit && pi_port() == 990 {
+                                                pi_port.set(21);
+                                            }
+                                        },
+                                        option { value: "explicit", "Explicit - AUTH TLS (RFC 4217)" }
+                                        option { value: "implicit", "Implicit - legacy, TLS from the first byte" }
+                                    }
                                 }
                             }
                             div { class: "status-summary__item status-summary__item--wide",
@@ -159,6 +209,11 @@ pub fn Status(mode: String, protocol: String) -> Element {
                                             dtp_port.set(v);
                                         }
                                     },
+                                }
+                            }
+                            if is_ftps {
+                                p { class: "status-hint",
+                                    "A self-signed certificate is generated on every start - the client will ask you to trust it."
                                 }
                             }
                             if let Some(err) = error_msg() {

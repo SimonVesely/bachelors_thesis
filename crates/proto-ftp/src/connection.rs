@@ -34,6 +34,35 @@ struct Endpoints {
     peer: SocketAddr,
     local: SocketAddr,
     protocol: Protocol,
+    encrypted: bool,
+}
+
+enum TransferError {
+    TlsNegotiation,
+    Protection,
+    Io,
+}
+
+impl From<io::Error> for TransferError {
+    fn from(_: io::Error) -> Self {
+        TransferError::Io
+    }
+}
+
+fn failure_reply(err: &TransferError, io_reply: &'static str) -> &'static str {
+    match err {
+        TransferError::TlsNegotiation => "522 TLS negotiation on the data connection failed.\r\n",
+        TransferError::Protection => "535 Data protection failed during the transfer.\r\n",
+        TransferError::Io => io_reply,
+    }
+}
+
+fn classify(err: io::Error, encrypted: bool) -> TransferError {
+    if encrypted && err.kind() == io::ErrorKind::InvalidData {
+        TransferError::Protection
+    } else {
+        TransferError::Io
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -54,10 +83,11 @@ where
     S: AsyncStream + 'static,
 {
     let _ = bind_addr;
-    let ep = Endpoints {
+    let mut ep = Endpoints {
         peer,
         local,
         protocol,
+        encrypted: false,
     };
     let mut session = Session::new(root, protocol, tls.clone());
     let mut stream: BoxedStream = Box::new(stream);
@@ -81,7 +111,6 @@ where
         let (secured, info) = upgrader.upgrade(stream).await?;
         stream = secured;
         session.tls_active = true;
-        session.prot_private = true;
         emit(
             &events,
             ep,
@@ -92,6 +121,7 @@ where
                 "TLS handshake complete ({info}) - implicit FTPS, control connection encrypted"
             ),
         );
+        ep.encrypted = true;
     }
 
     let (read_half, write_half) = tokio::io::split(stream);
@@ -286,12 +316,12 @@ where
                 .await?;
                 match send_listing(&mut session, &events, &dir, false).await {
                     Ok(_) => send(&mut writer, ep, &events, "226 Transfer complete.\r\n").await?,
-                    Err(_) => {
+                    Err(e) => {
                         send(
                             &mut writer,
                             ep,
                             &events,
-                            "451 Failed to list directory.\r\n",
+                            failure_reply(&e, "451 Failed to list directory.\r\n"),
                         )
                         .await?
                     }
@@ -308,12 +338,12 @@ where
                 .await?;
                 match send_listing(&mut session, &events, &dir, true).await {
                     Ok(_) => send(&mut writer, ep, &events, "226 Transfer complete.\r\n").await?,
-                    Err(_) => {
+                    Err(e) => {
                         send(
                             &mut writer,
                             ep,
                             &events,
-                            "451 Failed to list directory.\r\n",
+                            failure_reply(&e, "451 Failed to list directory.\r\n"),
                         )
                         .await?
                     }
@@ -354,8 +384,14 @@ where
                 .await?;
                 match send_file(&mut session, &events, &target).await {
                     Ok(_) => send(&mut writer, ep, &events, "226 Transfer complete.\r\n").await?,
-                    Err(_) => {
-                        send(&mut writer, ep, &events, "550 Failed to open file.\r\n").await?
+                    Err(e) => {
+                        send(
+                            &mut writer,
+                            ep,
+                            &events,
+                            failure_reply(&e, "550 Failed to open file.\r\n"),
+                        )
+                        .await?
                     }
                 }
                 session.rest_offset = 0;
@@ -372,8 +408,14 @@ where
                 .await?;
                 match receive_file(&mut session, &events, &target, append).await {
                     Ok(_) => send(&mut writer, ep, &events, "226 Transfer complete.\r\n").await?,
-                    Err(_) => {
-                        send(&mut writer, ep, &events, "550 Failed to write file.\r\n").await?
+                    Err(e) => {
+                        send(
+                            &mut writer,
+                            ep,
+                            &events,
+                            failure_reply(&e, "550 Failed to write file.\r\n"),
+                        )
+                        .await?
                     }
                 }
             }
@@ -506,8 +548,16 @@ where
             }
             Command::Auth(mechanism) => {
                 let mechanism = mechanism.to_ascii_uppercase();
-                if session.tls_active {
-                    send(&mut writer, ep, &events, "503 TLS is already active.\r\n").await?;
+                if mechanism.is_empty() {
+                    send(&mut writer, ep, &events, "501 AUTH needs a mechanism.\r\n").await?;
+                } else if session.tls_active {
+                    send(
+                        &mut writer,
+                        ep,
+                        &events,
+                        "534 Request denied for policy reasons - TLS is already active.\r\n",
+                    )
+                    .await?;
                 } else if mechanism != "TLS" && mechanism != "TLS-C" {
                     send(
                         &mut writer,
@@ -521,9 +571,10 @@ where
                         &mut writer,
                         ep,
                         &events,
-                        "503 Unexpected data after AUTH.\r\n",
+                        "421 Unexpected data after AUTH, closing control connection.\r\n",
                     )
                     .await?;
+                    break;
                 } else if let Some(upgrader) = tls.as_ref() {
                     send(
                         &mut writer,
@@ -537,9 +588,8 @@ where
                     let (read_half, write_half) = tokio::io::split(secured);
                     reader = BufReader::new(read_half);
                     writer = write_half;
+                    session.reset_after_auth();
                     session.tls_active = true;
-                    session.pbsz_done = false;
-                    session.prot_private = false;
                     emit(
                         &events,
                         ep,
@@ -548,13 +598,11 @@ where
                         Vec::new(),
                         format!("TLS handshake complete ({info}) - control connection encrypted"),
                     );
+                    ep.encrypted = true;
                 }
             }
-            Command::Pbsz(_) => {
-                if session.tls_active {
-                    session.pbsz_done = true;
-                    send(&mut writer, ep, &events, "200 PBSZ=0\r\n").await?;
-                } else {
+            Command::Pbsz(arg) => {
+                if !session.tls_active {
                     send(
                         &mut writer,
                         ep,
@@ -562,6 +610,17 @@ where
                         "503 PBSZ requires AUTH TLS first.\r\n",
                     )
                     .await?;
+                } else if arg.parse::<u32>().is_err() {
+                    send(
+                        &mut writer,
+                        ep,
+                        &events,
+                        "501 PBSZ needs a decimal integer.\r\n",
+                    )
+                    .await?;
+                } else {
+                    session.pbsz_done = true;
+                    send(&mut writer, ep, &events, "200 PBSZ=0\r\n").await?;
                 }
             }
             Command::Prot(level) => {
@@ -592,18 +651,37 @@ where
                             )
                             .await?;
                         }
+                        "" => {
+                            send(
+                                &mut writer,
+                                ep,
+                                &events,
+                                "501 PROT needs a protection level.\r\n",
+                            )
+                            .await?
+                        }
                         _ => send(&mut writer, ep, &events, "504 Unknown PROT level.\r\n").await?,
                     }
                 }
             }
             Command::Ccc => {
-                send(
-                    &mut writer,
-                    ep,
-                    &events,
-                    "534 Clearing the command channel is not permitted.\r\n",
-                )
-                .await?;
+                if !session.tls_active {
+                    send(
+                        &mut writer,
+                        ep,
+                        &events,
+                        "533 Command channel is not protected.\r\n",
+                    )
+                    .await?;
+                } else {
+                    send(
+                        &mut writer,
+                        ep,
+                        &events,
+                        "534 Clearing the command channel is not permitted.\r\n",
+                    )
+                    .await?;
+                }
             }
             Command::Unknown(verb) => {
                 send(
@@ -666,15 +744,11 @@ fn emit(
     raw: Vec<u8>,
     parsed: impl Into<String>,
 ) {
-    let _ = events.send(MessageEvent::new(
-        ep.protocol,
-        kind,
-        direction,
-        ep.peer,
-        ep.local,
-        raw,
-        parsed,
-    ));
+    let encrypted = ep.encrypted && matches!(kind, EventKind::Message | EventKind::Data);
+    let _ = events.send(
+        MessageEvent::new(ep.protocol, kind, direction, ep.peer, ep.local, raw, parsed)
+            .with_encrypted(encrypted),
+    );
 }
 
 fn emit_data(
@@ -694,29 +768,28 @@ fn emit_data(
             Vec::new(),
             parsed,
         )
-        .with_length(length),
+        .with_length(length)
+        .with_encrypted(ep.encrypted),
     );
 }
 
 async fn open_data_connection(
     session: &mut Session,
     events: &EventSender,
-) -> io::Result<(BoxedStream, Endpoints)> {
+) -> Result<(BoxedStream, Endpoints), TransferError> {
     let channel = std::mem::replace(&mut session.data_channel, DataChannel::None);
     let (tcp, opener) = match channel {
         DataChannel::Passive(listener) => (listener.accept().await?.0, Direction::ClientToServer),
         DataChannel::Active(addr) => (TcpStream::connect(addr).await?, Direction::ServerToClient),
         DataChannel::None => {
-            return Err(io::Error::new(
-                io::ErrorKind::NotConnected,
-                "no PASV/PORT issued",
-            ));
+            return Err(io::Error::new(io::ErrorKind::NotConnected, "no PASV/PORT issued").into());
         }
     };
-    let ep = Endpoints {
+    let mut ep = Endpoints {
         peer: tcp.peer_addr()?,
         local: tcp.local_addr()?,
         protocol: session.protocol,
+        encrypted: false,
     };
     emit(
         events,
@@ -730,7 +803,10 @@ async fn open_data_connection(
     let mut data: BoxedStream = Box::new(tcp);
     if session.prot_private {
         if let Some(upgrader) = &session.tls {
-            let (secured, info) = upgrader.upgrade(data).await?;
+            let (secured, info) = upgrader
+                .upgrade(data)
+                .await
+                .map_err(|_| TransferError::TlsNegotiation)?;
             data = secured;
             emit(
                 events,
@@ -740,6 +816,7 @@ async fn open_data_connection(
                 Vec::new(),
                 format!("TLS handshake complete ({info}) - data connection encrypted"),
             );
+            ep.encrypted = true;
         }
     }
     Ok((data, ep))
@@ -761,7 +838,7 @@ async fn send_listing(
     events: &EventSender,
     dir: &PathBuf,
     machine_readable: bool,
-) -> io::Result<()> {
+) -> Result<(), TransferError> {
     let (mut data, ep) = open_data_connection(session, events).await?;
     let mut entries = fs::read_dir(dir).await?;
     let mut out = String::new();
@@ -775,7 +852,9 @@ async fn send_listing(
             out.push_str("\r\n");
         }
     }
-    data.write_all(out.as_bytes()).await?;
+    data.write_all(out.as_bytes())
+        .await
+        .map_err(|e| classify(e, ep.encrypted))?;
     data.shutdown().await.ok();
     emit(
         events,
@@ -789,13 +868,19 @@ async fn send_listing(
     Ok(())
 }
 
-async fn send_file(session: &mut Session, events: &EventSender, path: &PathBuf) -> io::Result<()> {
+async fn send_file(
+    session: &mut Session,
+    events: &EventSender,
+    path: &PathBuf,
+) -> Result<(), TransferError> {
     let mut file = fs::File::open(path).await?;
     if session.rest_offset > 0 {
         file.seek(io::SeekFrom::Start(session.rest_offset)).await?;
     }
     let (mut data, ep) = open_data_connection(session, events).await?;
-    let bytes = tokio::io::copy(&mut file, &mut data).await?;
+    let bytes = tokio::io::copy(&mut file, &mut data)
+        .await
+        .map_err(|e| classify(e, ep.encrypted))?;
     data.shutdown().await.ok();
     emit_data(
         events,
@@ -813,7 +898,7 @@ async fn receive_file(
     events: &EventSender,
     path: &PathBuf,
     append: bool,
-) -> io::Result<()> {
+) -> Result<(), TransferError> {
     let mut file = if append {
         fs::OpenOptions::new()
             .create(true)
@@ -824,7 +909,9 @@ async fn receive_file(
         fs::File::create(path).await?
     };
     let (mut data, ep) = open_data_connection(session, events).await?;
-    let bytes = copy_until_eof(&mut data, &mut file).await?;
+    let bytes = copy_until_eof(&mut data, &mut file)
+        .await
+        .map_err(|e| classify(e, ep.encrypted))?;
     file.flush().await?;
     emit_data(
         events,

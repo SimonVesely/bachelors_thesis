@@ -77,6 +77,18 @@ impl Session {
         target
     }
 
+    pub fn reset_after_auth(&mut self) {
+        self.username = None;
+        self.authenticated = false;
+        self.cwd = PathBuf::from("/");
+        self.data_channel = DataChannel::None;
+        self.binary = true;
+        self.rename_from = None;
+        self.rest_offset = 0;
+        self.pbsz_done = false;
+        self.prot_private = false;
+    }
+
     pub fn virtual_cwd(&self) -> String {
         self.cwd.to_string_lossy().replace('\\', "/")
     }
