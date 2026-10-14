@@ -1,3 +1,19 @@
+//! # Core crate for Rust implementations of File transfer protocols(FTP,FTPS,SFTP,TFTP) described in each individual crates:
+//! - proto-ftp
+//! - proto-ftps
+//! - proto-sftp
+//! - proto-tftp
+//! ## About:
+//! Contains required components:
+//! - enums Direction, Protocol and EventKind
+//! - struct MessageEvent and NetInterface,
+//! - custom types EventSender and EventReceiver
+//! - function list_interfaces that returns vector of interfaces on device(loopbacks are ignored)
+//! ## Public API usage example:
+//! ```
+//!
+//! ```
+
 use std::net::{IpAddr, SocketAddr};
 use std::time::SystemTime;
 
