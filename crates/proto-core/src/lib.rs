@@ -11,7 +11,33 @@
 //! - function list_interfaces that returns vector of interfaces on device(loopbacks are ignored)
 //! ## Public API usage example:
 //! ```
+//! use proto_core::{event_channel, Direction, EventKind, MessageEvent, Protocol};
 //!
+//! #[tokio::main]
+//! async fn main() {
+//!     // Create an event channel
+//!     let (tx, mut rx) = event_channel();
+//!
+//!     // Build a example message event
+//!     let event = MessageEvent::new(
+//!         Protocol::Ftp,
+//!         EventKind::Message,
+//!         Direction::ClientToServer,
+//!         "127.0.0.1:12345".parse().unwrap(),
+//!         "127.0.0.1:21".parse().unwrap(),
+//!         b"USER anonymous".to_vec(),
+//!         "USER anonymous",
+//!     );
+//!
+//!     // Send the event
+//!     tx.send(event).unwrap();
+//!
+//!     // Receive the event asynchronously using Tokio's recv()
+//!     if let Some(received) = rx.recv().await {
+//!         assert_eq!(received.protocol, Protocol::Ftp);
+//!         println!("Received protocol: {:?}", received.protocol);
+//!     }
+//! }
 //! ```
 
 use std::net::{IpAddr, SocketAddr};

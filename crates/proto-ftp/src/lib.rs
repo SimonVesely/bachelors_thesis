@@ -13,7 +13,10 @@
 //! ```
 //! use std::net::{IpAddr, Ipv4Addr};
 //! use std::path::PathBuf;
+//! use std::thread::sleep;
+//! use std::time::Duration;
 //! use tokio::sync::broadcast;
+//!
 //! use proto_core::event_channel;
 //! use proto_ftp::{FtpServerConfig, serve};
 //!
@@ -21,7 +24,7 @@
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let config = FtpServerConfig {
 //!         bind_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-//!         control_port: 21,
+//!         control_port: 2121,
 //!         pasv_port_start: 30000,
 //!         pasv_port_end: 30100,
 //!         root_dir: PathBuf::from("./ftp_root"),
@@ -39,11 +42,10 @@
 //!         }
 //!     });
 //!
-//!     println!("FTP server is running on 127.0.0.1:21. Press Ctrl+C to stop.");
+//!     println!("FTP server is running on 127.0.0.1:2121. Press Ctrl+C to stop.");
+//!     sleep(Duration::from_millis(50));
 //!
-//!     tokio::signal::ctrl_c().await?;
 //!     println!("Shutdown signal received, stopping server...");
-//!
 //!     let _ = shutdown_tx.send(());
 //!
 //!     server_handle.await?;

@@ -1,4 +1,3 @@
-// cli only version of app for server porpuse
-fn main() {
-    println!("Hello, world!");
-}
+//! # CLI frontend for FTPeek, for use on devices without GUI
+//! - Its not yet decided if it will be implemented
+fn main() {}
