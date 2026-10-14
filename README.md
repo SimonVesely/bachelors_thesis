@@ -51,6 +51,14 @@ app/              Dioxus desktop app
 documentation/    docs, lab exercise
 ```
 
+## Documentation
+
+You can build official Rust documentation using:
+```
+cargo doc --workspace --no-deps --document-private-items --open
+```
+For future releases, documentation will include GitHub Pages support
+
 ## Building
 
 ```
