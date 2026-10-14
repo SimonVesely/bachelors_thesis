@@ -3,8 +3,7 @@
 **Aplikace pro analýzu komunikace protokolů pro přenos souborů**
 
 A server-side application for demonstrating and analyzing file-transfer
-protocol communication. Built entirely in Rust, UI with
-[Dioxus](https://dioxuslabs.com/).
+protocol communication. Built entirely in Rust.
 
 ## Scope
 
@@ -59,13 +58,37 @@ cargo doc --workspace --no-deps --document-private-items --open
 ```
 For future releases, documentation will include GitHub Pages support
 
-## Building
+## Building on your own machine
 
 ```
 cargo build --workspace
 cd app/
 dx serve
 ```
+
+## Project dependencies
+
+FTPeek is built in Rust and powered by the following open-source dependencies:
+
+### Core & Framework
+* **[Rust](https://www.rust-lang.org/)** (Edition 2024) — Core programming language (`MIT` / `Apache-2.0`)
+* **[Tokio](https://tokio.rs/)** — Asynchronous runtime for Rust (`MIT`)
+
+### Security & Protocol Libraries
+* **[rustls](https://github.com/rustls/rustls)** & **[tokio-rustls](https://github.com/rustls/tokio-rustls)** — Modern TLS library and Tokio integration (`Apache-2.0` / `MIT` / `ISC`)
+* **[russh](https://github.com/warp-tech/russh)** — Pure Rust SSH implementation (`Apache-2.0` / `MIT`)
+* **[russh-sftp](https://github.com/warp-tech/russh)** — SFTP protocol support built on top of `russh` (`Apache-2.0` / `MIT`)
+* **[rcgen](https://github.com/est31/rcgen)** — X.509 certificate generation library (`MIT` / `Apache-2.0`)
+
+### Utilities & Infrastructure
+* **[Clap](https://docs.rs/clap/)** — Command Line Argument Parser (`MIT` / `Apache-2.0`)
+* **[Serde](https://serde.rs/)** — Serialization and deserialization framework (`MIT` / `Apache-2.0`)
+* **[Tracing](https://github.com/tokio-rs/tracing)** & **[tracing-subscriber](https://github.com/tokio-rs/tracing)** — Application-level tracing and logging (`MIT`)
+* **[Anyhow](https://github.com/dtolnay/anyhow)** & **[thiserror](https://github.com/dtolnay/thiserror)** — Flexible error handling (`MIT` / `Apache-2.0`)
+* **[Bytes](https://github.com/tokio-rs/bytes)** — Robust byte buffer management (`MIT`)
+* **[if-addrs](https://github.com/messense/if-addrs)** — System network interface discovery (`MIT` / `Apache-2.0`)
+
+---
 
 ## License
 
