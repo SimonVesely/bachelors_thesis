@@ -40,6 +40,9 @@
 //! }
 //! ```
 
+mod users;
+pub use users::{UserDb, UserDbError};
+
 use std::net::{IpAddr, SocketAddr};
 use std::time::SystemTime;
 
