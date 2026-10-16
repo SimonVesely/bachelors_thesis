@@ -1,3 +1,4 @@
+use crate::components::UserManager;
 use crate::{AppState, Route};
 use dioxus::prelude::*;
 
@@ -6,6 +7,11 @@ pub fn ModeSelect() -> Element {
     let mut state = use_context::<AppState>();
     let interfaces = state.interfaces.read().clone();
     let selected = state.selected_interface.read().clone();
+    let mut show_users = use_signal(|| false);
+
+    let anonymous = (state.anonymous)();
+    let user_count = state.user_names.read().len();
+    let db_ok = state.users.read().is_ok();
 
     rsx! {
         section { class: "mode-select",
@@ -60,6 +66,49 @@ pub fn ModeSelect() -> Element {
                         }
                     }
                 }
+            }
+
+            div { class: "access-panel",
+                h3 { class: "interface-picker__title", "User access" }
+                div { class: "access-panel__row",
+                    label { class: "access-toggle",
+                        input {
+                            r#type: "checkbox",
+                            checked: anonymous,
+                            onchange: move |e| state.anonymous.set(e.checked()),
+                        }
+                        span { class: "access-toggle__track",
+                            span { class: "access-toggle__thumb" }
+                        }
+                        span { class: "access-toggle__label", "Anonymous access" }
+                    }
+                    button {
+                        class: "browse-btn",
+                        onclick: move |_| show_users.set(true),
+                        "Manage users"
+                    }
+                }
+                if anonymous {
+                    p { class: "access-panel__hint",
+                        "Any user name and password is accepted. The user database is ignored."
+                    }
+                } else if !db_ok {
+                    p { class: "access-panel__hint access-panel__hint--warn",
+                        "The user database could not be opened - open Manage users for details."
+                    }
+                } else if user_count == 0 {
+                    p { class: "access-panel__hint access-panel__hint--warn",
+                        "No users yet - nobody will be able to log in. Add one in Manage users."
+                    }
+                } else {
+                    p { class: "access-panel__hint",
+                        "Only the {user_count} registered user(s) can log in."
+                    }
+                }
+            }
+
+            if show_users() {
+                UserManager { on_close: move |_| show_users.set(false) }
             }
         }
     }

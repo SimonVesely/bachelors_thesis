@@ -5,12 +5,18 @@ use dioxus_desktop::{Config, WindowBuilder};
 use dioxus_desktop::tao::platform::macos::WindowBuilderExtMacOS;
 
 mod components;
-use components::{AppShell, ModeSelect, ProtocolSelect, Status, Unavailable};
+use components::{AppShell, ModeSelect, ProtocolSelect, Status, Unavailable, UserStore};
 
 #[derive(Clone, Copy)]
 pub struct AppState {
     pub interfaces: Signal<Vec<proto_core::NetInterface>>,
     pub selected_interface: Signal<Option<String>>,
+    /// The user database, opened once at startup (`Err` holds why it could not be opened).
+    pub users: Signal<Result<UserStore, String>>,
+    /// User names currently in the database, kept in sync by the "Manage users" popup.
+    pub user_names: Signal<Vec<String>>,
+    /// `true` = any user name and password is accepted, the database is ignored.
+    pub anonymous: Signal<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Routable)]
@@ -53,9 +59,20 @@ fn App() -> Element {
     let interfaces = proto_core::list_interfaces();
     let default_selection = interfaces.first().map(|i| i.name.clone());
 
-    use_context_provider(|| AppState {
-        interfaces: Signal::new(interfaces),
-        selected_interface: Signal::new(default_selection),
+    // This closure runs only once, which matters: redb refuses to open the same file twice.
+    use_context_provider(|| {
+        let users = components::open_user_db();
+        let names = match &users {
+            Ok(store) => store.db.list_users().unwrap_or_default(),
+            Err(_) => Vec::new(),
+        };
+        AppState {
+            interfaces: Signal::new(interfaces),
+            selected_interface: Signal::new(default_selection),
+            users: Signal::new(users),
+            user_names: Signal::new(names),
+            anonymous: Signal::new(true),
+        }
     });
 
     rsx! {

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use dioxus::prelude::*;
 use tokio::sync::broadcast;
 
-use proto_core::{event_channel, MessageEvent};
+use proto_core::{MessageEvent, event_channel};
 use proto_ftp::FtpServerConfig;
 use proto_ftps::{FtpsMode, FtpsServerConfig};
 
@@ -27,6 +27,12 @@ pub fn Status(mode: String, protocol: String) -> Element {
 
     let is_ftps = protocol == "ftps";
     let is_supported = mode == "server" && (protocol == "ftp" || is_ftps);
+
+    let access_label = if (state.anonymous)() {
+        "anonymous".to_string()
+    } else {
+        format!("{} user(s)", state.user_names.read().len())
+    };
 
     let protocol_label = if !is_ftps {
         "FTP"
@@ -55,12 +61,26 @@ pub fn Status(mode: String, protocol: String) -> Element {
         let (shutdown_send, shutdown_recv) = broadcast::channel(4);
         shutdown_tx.set(Some(shutdown_send));
 
+        // Anonymous: no database. Otherwise every login is checked against it.
+        let users = if (state.anonymous)() {
+            None
+        } else {
+            match &*state.users.read() {
+                Ok(store) => Some(store.db.clone()),
+                Err(e) => {
+                    error_msg.set(Some(format!("User database unavailable: {e}")));
+                    return;
+                }
+            }
+        };
+
         let cfg = FtpServerConfig {
             bind_addr: bind_ip,
             control_port: pi_port(),
             pasv_port_start: dtp_port(),
             pasv_port_end: dtp_port(),
             root_dir: root,
+            users,
         };
         let ftps_mode = if ftps_implicit() {
             FtpsMode::Implicit
@@ -124,6 +144,10 @@ pub fn Status(mode: String, protocol: String) -> Element {
                             div { class: "status-summary__item",
                                 span { class: "status-summary__label", "Protocol" }
                                 span { class: "status-summary__value", "{protocol_label}" }
+                            }
+                            div { class: "status-summary__item",
+                                span { class: "status-summary__label", "Access" }
+                                span { class: "status-summary__value", "{access_label}" }
                             }
                             div { class: "status-summary__item",
                                 span { class: "status-summary__label", "State" }

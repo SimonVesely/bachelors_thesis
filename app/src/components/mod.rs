@@ -7,6 +7,7 @@ mod protocol_select;
 mod shell;
 mod status;
 mod unavailable;
+mod user_manager;
 
 pub use directory_preview::DirectoryPreview;
 pub use mode_select::ModeSelect;
@@ -17,3 +18,4 @@ pub use protocol_select::ProtocolSelect;
 pub use shell::AppShell;
 pub use status::Status;
 pub use unavailable::Unavailable;
+pub use user_manager::{open_user_db, UserManager, UserStore};
