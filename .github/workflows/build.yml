@@ -15,10 +15,13 @@ jobs:
         include:
           - os: macos-latest
             asset_name: ftpeek-macos
+            exe: FTPeek
           - os: windows-latest
             asset_name: ftpeek-windows
+            exe: FTPeek.exe
           - os: ubuntu-latest
             asset_name: ftpeek-linux
+            exe: FTPeek
 
     runs-on: ${{ matrix.os }}
 
@@ -44,20 +47,33 @@ jobs:
         with:
           workspaces: ". -> target"
 
+      - name: Build portable binary
+        run: cargo build --release --package app
+
+      - name: Archive portable binary (unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          mkdir -p dist
+          # tar keeps the executable bit, so ./FTPeek runs right after unpacking.
+          tar -czf "dist/${{ matrix.asset_name }}-portable.tar.gz" -C target/release "${{ matrix.exe }}"
+
+      - name: Archive portable binary (windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path "target\release\${{ matrix.exe }}" -DestinationPath "dist\${{ matrix.asset_name }}-portable.zip" -Force
+
       - name: Install Dioxus CLI
         run: cargo install dioxus-cli --locked
 
       - name: Bundle app (release)
         run: dx bundle --release --desktop --package app
 
-      - name: Show dx output layout
-        shell: bash
-        run: find target/dx -maxdepth 7 | head -n 120 || true
-
       - name: Locate bundle
         shell: bash
         run: |
-          mkdir -p dist
           BUNDLE_DIR=$(find target/dx -type d -iname "bundle" | head -n 1)
           if [ -z "$BUNDLE_DIR" ]; then
             echo "Could not locate dx bundle output under target/dx" >&2
@@ -66,46 +82,25 @@ jobs:
           fi
           echo "BUNDLE_DIR=$BUNDLE_DIR" >> "$GITHUB_ENV"
 
-      - name: Archive bundle (unix)
+      - name: Archive installers (unix)
         if: matrix.os != 'windows-latest'
         shell: bash
         run: |
           cd "$(dirname "$BUNDLE_DIR")"
-          zip -r "$GITHUB_WORKSPACE/dist/${{ matrix.asset_name }}.zip" "$(basename "$BUNDLE_DIR")"
+          zip -r "$GITHUB_WORKSPACE/dist/${{ matrix.asset_name }}-installer.zip" "$(basename "$BUNDLE_DIR")"
 
-      - name: Archive installer bundle (windows)
+      - name: Archive installers (windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
           $bundleDir = $env:BUNDLE_DIR -replace '/', '\'
-          $parent = Split-Path $bundleDir -Parent
-          $leaf = Split-Path $bundleDir -Leaf
-          Compress-Archive -Path (Join-Path $parent $leaf) -DestinationPath "dist\${{ matrix.asset_name }}-installer.zip" -Force
-
-      - name: Archive portable build (windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $exe = Get-ChildItem -Path target/dx -Recurse -Filter app.exe -File |
-            Where-Object { $_.FullName -notmatch '[\\/]bundle[\\/]' } |
-            Select-Object -First 1
-          if (-not $exe) {
-            Write-Error "app.exe not found under target/dx"
-            exit 1
-          }
-          $dir = $exe.DirectoryName
-          Write-Host "Portable dir: $dir"
-          Get-ChildItem $dir -Force | Format-Table Name, Length
-          if (-not (Test-Path (Join-Path $dir 'assets'))) {
-            Write-Host "::warning::assets folder is missing next to app.exe - CSS and fonts will not load"
-          }
-          Compress-Archive -Path "$dir\*" -DestinationPath "dist\${{ matrix.asset_name }}-portable.zip" -Force
+          Compress-Archive -Path $bundleDir -DestinationPath "dist\${{ matrix.asset_name }}-installer.zip" -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset_name }}
-          path: dist/*.zip
+          path: dist/*
 
   release:
     needs: build
