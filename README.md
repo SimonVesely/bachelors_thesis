@@ -87,6 +87,7 @@ FTPeek is built in Rust and powered by the following open-source dependencies:
 * **[Anyhow](https://github.com/dtolnay/anyhow)** & **[thiserror](https://github.com/dtolnay/thiserror)** — Flexible error handling (`MIT` / `Apache-2.0`)
 * **[Bytes](https://github.com/tokio-rs/bytes)** — Robust byte buffer management (`MIT`)
 * **[if-addrs](https://github.com/messense/if-addrs)** — System network interface discovery (`MIT` / `Apache-2.0`)
+* **[directories](https://docs.rs/directories/6.0.0/directories/)** — Provides the platform-specific user-accesible locations (`MIT` / `Apache-2.0`)
 
 ### Local User Database
 * **[redb](https://github.com/cberner/redb)** - Portable, high-performance, ACID, embedded key-value store database (`MIT` / `Apache-2.0`)
