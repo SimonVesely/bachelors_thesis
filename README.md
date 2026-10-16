@@ -88,6 +88,10 @@ FTPeek is built in Rust and powered by the following open-source dependencies:
 * **[Bytes](https://github.com/tokio-rs/bytes)** — Robust byte buffer management (`MIT`)
 * **[if-addrs](https://github.com/messense/if-addrs)** — System network interface discovery (`MIT` / `Apache-2.0`)
 
+### Local User Database
+* **[redb](https://github.com/cberner/redb)** - Portable, high-performance, ACID, embedded key-value store database (`MIT` / `Apache-2.0`)
+* **[argon2](https://docs.rs/argon2/latest/argon2/)** - Rust implementation of the Argon2 password hashing function (`MIT` / `Apache-2.0`)
+
 ---
 
 ## License
