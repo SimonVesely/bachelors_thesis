@@ -1,3 +1,7 @@
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+use std::sync::LazyLock;
+
+use base64::prelude::*;
 use dioxus::prelude::*;
 use dioxus_desktop::{Config, WindowBuilder};
 
@@ -7,15 +11,35 @@ use dioxus_desktop::tao::platform::macos::WindowBuilderExtMacOS;
 mod components;
 use components::{AppShell, ModeSelect, ProtocolSelect, Status, Unavailable, UserStore};
 
+const MAIN_CSS: &str = include_str!("../assets/CSS/main.css");
+const FONT_LIGHT: &[u8] = include_bytes!("../assets/fonts/VafleVUT-Light.otf");
+const FONT_REGULAR: &[u8] = include_bytes!("../assets/fonts/VafleVUT-Regular.otf");
+const FONT_BOLD: &[u8] = include_bytes!("../assets/fonts/VafleVUT-Bold.otf");
+
+static APP_CSS: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "{}\n{}\n{}\n{}",
+        font_face(300, FONT_LIGHT),
+        font_face(400, FONT_REGULAR),
+        font_face(700, FONT_BOLD),
+        MAIN_CSS
+    )
+});
+
+fn font_face(weight: u16, bytes: &[u8]) -> String {
+    format!(
+        "@font-face {{ font-family: 'Vafle VUT'; font-weight: {weight}; \
+         src: url('data:font/otf;base64,{}') format('opentype'); }}",
+        BASE64_STANDARD.encode(bytes)
+    )
+}
+
 #[derive(Clone, Copy)]
 pub struct AppState {
     pub interfaces: Signal<Vec<proto_core::NetInterface>>,
     pub selected_interface: Signal<Option<String>>,
-    /// The user database, opened once at startup (`Err` holds why it could not be opened).
     pub users: Signal<Result<UserStore, String>>,
-    /// User names currently in the database, kept in sync by the "Manage users" popup.
     pub user_names: Signal<Vec<String>>,
-    /// `true` = any user name and password is accepted, the database is ignored.
     pub anonymous: Signal<bool>,
 }
 
@@ -49,8 +73,12 @@ fn main() {
             .with_movable_by_window_background(true);
     }
 
+    let config = Config::new().with_window(window);
+    #[cfg(not(target_os = "macos"))]
+    let config = config.with_menu(None);
+
     dioxus::LaunchBuilder::desktop()
-        .with_cfg(Config::new().with_window(window))
+        .with_cfg(config)
         .launch(App);
 }
 
@@ -59,7 +87,6 @@ fn App() -> Element {
     let interfaces = proto_core::list_interfaces();
     let default_selection = interfaces.first().map(|i| i.name.clone());
 
-    // This closure runs only once, which matters: redb refuses to open the same file twice.
     use_context_provider(|| {
         let users = components::open_user_db();
         let names = match &users {
@@ -76,17 +103,7 @@ fn App() -> Element {
     });
 
     rsx! {
-        document::Style {
-                    {format!(
-                        "@font-face {{ font-family: 'Vafle VUT'; font-weight: 300; src: url('{}') format('opentype'); }}
-                         @font-face {{ font-family: 'Vafle VUT'; font-weight: 400; src: url('{}') format('opentype'); }}
-                         @font-face {{ font-family: 'Vafle VUT'; font-weight: 700; src: url('{}') format('opentype'); }}",
-                        asset!("/assets/fonts/VafleVUT-Light.otf"),
-                        asset!("/assets/fonts/VafleVUT-Regular.otf"),
-                        asset!("/assets/fonts/VafleVUT-Bold.otf"),
-                    )}
-                }
-                document::Stylesheet { href: asset!("/assets/CSS/main.css") }
+        document::Style { {APP_CSS.as_str()} }
         Router::<Route> {}
     }
 }

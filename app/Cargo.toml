@@ -16,9 +16,14 @@ tracing        = { workspace = true }
 rfd            = "0.17"
 tokio          = { workspace = true }
 directories    = "6"
+base64         = "0.23.1"
 
 [features]
 default = ["desktop"]
 web = ["dioxus/web"]
 desktop = ["dioxus/desktop"]
 mobile = ["dioxus/mobile"]
+
+[[bin]]
+name = "FTPeek"
+path = "src/main.rs"
