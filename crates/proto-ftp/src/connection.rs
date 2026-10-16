@@ -1,13 +1,15 @@
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::fs;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast;
 
-use proto_core::{Direction, EventKind, EventSender, MessageEvent, Protocol};
+use proto_core::{Direction, EventKind, EventSender, MessageEvent, Protocol, UserDb};
 
 use crate::command::Command;
 use crate::listing::{format_list_line, format_mdtm, format_mlsx_facts};
@@ -70,7 +72,7 @@ pub async fn handle_client<S>(
     stream: S,
     peer: SocketAddr,
     local: SocketAddr,
-    bind_addr: IpAddr,
+    users: Option<Arc<UserDb>>,
     root: PathBuf,
     pasv_range: PassiveRange,
     events: EventSender,
@@ -82,7 +84,6 @@ pub async fn handle_client<S>(
 where
     S: AsyncStream + 'static,
 {
-    let _ = bind_addr;
     let mut ep = Endpoints {
         peer,
         local,
@@ -198,12 +199,27 @@ where
                 )
                 .await?;
             }
-            Command::Pass(_) => {
-                if session.username.is_some() {
+            Command::Pass(password) => {
+                let Some(name) = session.username.clone() else {
+                    send(&mut writer, ep, &events, "503 Login with USER first.\r\n").await?;
+                    continue;
+                };
+                let accepted = match &users {
+                    None => true,
+                    Some(db) => {
+                        let db = Arc::clone(db);
+                        tokio::task::spawn_blocking(move || db.verify(&name, &password))
+                            .await
+                            .unwrap_or(false)
+                    }
+                };
+                if accepted {
                     session.authenticated = true;
                     send(&mut writer, ep, &events, "230 User logged in.\r\n").await?;
                 } else {
-                    send(&mut writer, ep, &events, "503 Login with USER first.\r\n").await?;
+                    session.username = None;
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    send(&mut writer, ep, &events, "530 Login incorrect.\r\n").await?;
                 }
             }
             Command::Host(name) => {

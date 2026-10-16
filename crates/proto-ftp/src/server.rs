@@ -1,11 +1,12 @@
 use std::io;
 use std::net::IpAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 
-use proto_core::{EventSender, Protocol};
+use proto_core::{EventSender, Protocol, UserDb};
 
 use crate::connection::{PassiveRange, handle_client};
 use crate::tls::TlsUpgrader;
@@ -16,6 +17,7 @@ pub struct FtpServerConfig {
     pub pasv_port_start: u16,
     pub pasv_port_end: u16,
     pub root_dir: PathBuf,
+    pub users: Option<Arc<UserDb>>,
 }
 
 pub async fn serve(
@@ -44,14 +46,14 @@ pub async fn serve_with(
                 let local = stream.local_addr()?;
                 let events = events.clone();
                 let root = cfg.root_dir.clone();
-                let bind_addr = cfg.bind_addr;
+                let users = cfg.users.clone();
                 let pasv_range = PassiveRange { start: cfg.pasv_port_start, end: cfg.pasv_port_end };
                 let client_shutdown = shutdown.resubscribe();
                 let tls = tls.clone();
 
                 tokio::spawn(async move {
                     if let Err(err) = handle_client(
-                        stream, peer, local, bind_addr, root, pasv_range,
+                        stream, peer, local, users, root, pasv_range,
                         events, client_shutdown, protocol, tls, implicit_tls,
                     ).await {
                         tracing::warn!(%peer, %err, "session ended with an error");
