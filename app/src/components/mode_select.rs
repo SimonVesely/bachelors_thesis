@@ -59,8 +59,8 @@ pub fn ModeSelect() -> Element {
                         },
                         for iface in interfaces.iter() {
                             option {
-                                key: "{iface.name}",
-                                value: "{iface.name}",
+                                key: "{iface.ip}",
+                                value: "{iface.ip}",
                                 "{iface.name} — {iface.ip}"
                             }
                         }

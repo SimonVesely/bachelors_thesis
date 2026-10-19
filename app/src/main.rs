@@ -85,7 +85,7 @@ fn main() {
 #[component]
 fn App() -> Element {
     let interfaces = proto_core::list_interfaces();
-    let default_selection = interfaces.first().map(|i| i.name.clone());
+    let default_selection = interfaces.first().map(|i| i.ip.to_string());
 
     use_context_provider(|| {
         let users = components::open_user_db();

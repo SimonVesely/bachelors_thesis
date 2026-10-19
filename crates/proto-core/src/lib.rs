@@ -149,7 +149,7 @@ pub fn list_interfaces() -> Vec<NetInterface> {
     if_addrs::get_if_addrs()
         .unwrap_or_default()
         .into_iter()
-        .filter(|iface| !iface.is_loopback())
+        .filter(|iface| !iface.is_loopback() && iface.ip().is_ipv4())
         .map(|iface| {
             let ip = iface.ip();
             NetInterface {

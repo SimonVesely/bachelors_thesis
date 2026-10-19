@@ -51,7 +51,7 @@ pub fn Status(mode: String, protocol: String) -> Element {
             .interfaces
             .read()
             .iter()
-            .find(|iface| Some(iface.name.clone()) == state.selected_interface.read().clone())
+            .find(|iface| Some(iface.ip.to_string()) == *state.selected_interface.read())
             .map(|iface| iface.ip)
             .unwrap_or(IpAddr::from([0, 0, 0, 0]));
 
