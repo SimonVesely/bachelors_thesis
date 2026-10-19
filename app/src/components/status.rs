@@ -8,7 +8,9 @@ use proto_core::{MessageEvent, event_channel};
 use proto_ftp::FtpServerConfig;
 use proto_ftps::{FtpsMode, FtpsServerConfig};
 
-use super::{DirectoryPreview, PacketDetail, PacketDiagram, PacketLog};
+use super::{
+    ClientInfo, ClientList, DirectoryPreview, PacketDetail, PacketDiagram, PacketLog, track_client,
+};
 use crate::{AppState, Route};
 
 #[component]
@@ -21,6 +23,8 @@ pub fn Status(mode: String, protocol: String) -> Element {
     let mut running = use_signal(|| false);
     let mut logs = use_signal(Vec::<MessageEvent>::new);
     let selected = use_signal(|| None::<usize>);
+    let mut clients = use_signal(Vec::<ClientInfo>::new);
+    let filter = use_signal(|| None::<u64>);
     let mut error_msg = use_signal(|| None::<String>);
     let mut shutdown_tx = use_signal(|| None::<broadcast::Sender<()>>);
     let mut ftps_implicit = use_signal(|| false);
@@ -61,7 +65,6 @@ pub fn Status(mode: String, protocol: String) -> Element {
         let (shutdown_send, shutdown_recv) = broadcast::channel(4);
         shutdown_tx.set(Some(shutdown_send));
 
-        // Anonymous: no database. Otherwise every login is checked against it.
         let users = if (state.anonymous)() {
             None
         } else {
@@ -110,6 +113,7 @@ pub fn Status(mode: String, protocol: String) -> Element {
 
         spawn(async move {
             while let Some(event) = rx.recv().await {
+                track_client(&mut clients.write(), &event);
                 logs.write().push(event);
             }
         });
@@ -246,12 +250,17 @@ pub fn Status(mode: String, protocol: String) -> Element {
                         }
                     }
 
-                    div { class: "status-grid__cell",
-                        DirectoryPreview { root_dir, logs }
+                    div { class: "status-grid__cell status-grid__cell--row",
+                        div { class: "status-grid__sub",
+                            DirectoryPreview { root_dir, logs }
+                        }
+                        div { class: "status-grid__sub",
+                            ClientList { clients, filter }
+                        }
                     }
 
                     div { class: "status-grid__cell",
-                        PacketLog { logs, selected }
+                        PacketLog { logs, selected, clients, filter }
                     }
 
                     div { class: "status-grid__cell status-grid__cell--split",

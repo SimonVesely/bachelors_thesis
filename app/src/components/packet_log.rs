@@ -1,6 +1,8 @@
 use dioxus::prelude::*;
 use proto_core::{Direction, EventKind, MessageEvent, Protocol};
 
+use super::ClientInfo;
+
 struct Row {
     class: String,
     no: usize,
@@ -42,7 +44,7 @@ fn info_text(e: &MessageEvent) -> String {
     }
 }
 
-fn group_boundaries(entries: &[MessageEvent]) -> Vec<bool> {
+fn group_boundaries(entries: &[&MessageEvent]) -> Vec<bool> {
     let mut group_id = 0usize;
     let mut ids = Vec::with_capacity(entries.len());
 
@@ -64,21 +66,34 @@ fn group_boundaries(entries: &[MessageEvent]) -> Vec<bool> {
 }
 
 #[component]
-pub fn PacketLog(logs: Signal<Vec<MessageEvent>>, selected: Signal<Option<usize>>) -> Element {
+pub fn PacketLog(
+    logs: Signal<Vec<MessageEvent>>,
+    selected: Signal<Option<usize>>,
+    clients: Signal<Vec<ClientInfo>>,
+    filter: Signal<Option<u64>>,
+) -> Element {
     let mut logs = logs;
     let mut selected = selected;
+    let mut filter = filter;
     let mut autoscroll = use_signal(|| true);
 
-    let rows: Vec<Row> = {
-        let entries = logs.read();
-        let t0 = entries.first().map(|e| e.timestamp);
+    let (rows, total): (Vec<Row>, usize) = {
+        let all = logs.read();
+        let t0 = all.first().map(|e| e.timestamp);
         let current = selected();
-        let ends = group_boundaries(&entries);
-
-        entries
+        let only = filter();
+        let shown: Vec<(usize, &MessageEvent)> = all
             .iter()
             .enumerate()
-            .map(|(i, e)| {
+            .filter(|(_, e)| only.is_none_or(|id| e.session == id))
+            .collect();
+        let events: Vec<&MessageEvent> = shown.iter().map(|(_, e)| *e).collect();
+        let ends = group_boundaries(&events);
+
+        let rows = shown
+            .iter()
+            .zip(ends)
+            .map(|(&(i, e), end_of_group)| {
                 let elapsed = t0
                     .and_then(|t| e.timestamp.duration_since(t).ok())
                     .unwrap_or_default()
@@ -108,15 +123,26 @@ pub fn PacketLog(logs: Signal<Vec<MessageEvent>>, selected: Signal<Option<usize>
                     proto: proto_label(e),
                     len: e.length,
                     info: info_text(e),
-                    end_of_group: ends[i],
+                    end_of_group,
                 }
             })
-            .collect()
+            .collect();
+        (rows, all.len())
     };
-    let total = rows.len();
+    let count_label = if filter().is_some() {
+        format!("{} of {total} packets", rows.len())
+    } else {
+        format!("{total} packets")
+    };
+    let client_options: Vec<(u64, String)> = clients
+        .read()
+        .iter()
+        .map(|c| (c.session, c.label()))
+        .collect();
 
     use_effect(move || {
         let count = logs.read().len();
+        let _ = filter(); // also jump to the bottom when the filter changes
         if autoscroll() && count > 0 {
             let _ = document::eval(
                 "var el = document.getElementById('packet-scroll'); if (el) { el.scrollTop = el.scrollHeight; }",
@@ -128,8 +154,17 @@ pub fn PacketLog(logs: Signal<Vec<MessageEvent>>, selected: Signal<Option<usize>
         div { class: "packet-log",
             div { class: "packet-log__toolbar",
                 span { class: "packet-log__title", "Packet log" }
-                span { class: "packet-log__count", "{total} packets" }
+                span { class: "packet-log__count", "{count_label}" }
                 div { class: "packet-log__spacer" }
+                select {
+                    class: "status-summary__input packet-log__filter",
+                    value: filter().map(|id| id.to_string()).unwrap_or_default(),
+                    onchange: move |e| filter.set(e.value().parse().ok()),
+                    option { value: "", "All clients" }
+                    for (id, label) in client_options {
+                        option { key: "{id}", value: "{id}", "{label}" }
+                    }
+                }
                 label { class: "packet-log__autoscroll",
                     input {
                         r#type: "checkbox",
@@ -149,7 +184,9 @@ pub fn PacketLog(logs: Signal<Vec<MessageEvent>>, selected: Signal<Option<usize>
             }
             div { id: "packet-scroll", class: "packet-log__body",
                 if rows.is_empty() {
-                    p { class: "packet-log__empty", "No packets captured yet." }
+                    p { class: "packet-log__empty",
+                        if filter().is_some() { "No packets from this client." } else { "No packets captured yet." }
+                    }
                 } else {
                     table { class: "packet-table",
                         colgroup {

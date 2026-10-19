@@ -12,23 +12,33 @@ pub type BoxedStream = Box<dyn AsyncStream>;
 
 pub type UpgradeFuture = Pin<Box<dyn Future<Output = io::Result<(BoxedStream, String)>> + Send>>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TlsRole {
+    Control,
+    Data,
+}
+
 #[derive(Clone)]
 pub struct TlsUpgrader {
-    inner: Arc<dyn Fn(BoxedStream) -> UpgradeFuture + Send + Sync>,
+    inner: Arc<dyn Fn(BoxedStream, TlsRole) -> UpgradeFuture + Send + Sync>,
 }
 
 impl TlsUpgrader {
     pub fn new<F, Fut>(f: F) -> Self
     where
-        F: Fn(BoxedStream) -> Fut + Send + Sync + 'static,
+        F: Fn(BoxedStream, TlsRole) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = io::Result<(BoxedStream, String)>> + Send + 'static,
     {
         TlsUpgrader {
-            inner: Arc::new(move |stream| Box::pin(f(stream))),
+            inner: Arc::new(move |stream, role| Box::pin(f(stream, role))),
         }
     }
 
-    pub async fn upgrade(&self, stream: BoxedStream) -> io::Result<(BoxedStream, String)> {
-        (self.inner)(stream).await
+    pub async fn upgrade(
+        &self,
+        stream: BoxedStream,
+        role: TlsRole,
+    ) -> io::Result<(BoxedStream, String)> {
+        (self.inner)(stream, role).await
     }
 }

@@ -44,6 +44,7 @@ mod users;
 pub use users::{UserDb, UserDbError};
 
 use std::net::{IpAddr, SocketAddr};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +82,7 @@ pub struct MessageEvent {
     pub length: usize,
     pub parsed: Option<String>,
     pub encrypted: bool,
+    pub session: u64,
 }
 
 impl MessageEvent {
@@ -105,6 +107,7 @@ impl MessageEvent {
             length,
             parsed: Some(parsed.into()),
             encrypted: false,
+            session: 0,
         }
     }
 
@@ -117,6 +120,16 @@ impl MessageEvent {
         self.length = length;
         self
     }
+
+    pub fn with_session(mut self, session: u64) -> Self {
+        self.session = session;
+        self
+    }
+}
+
+pub fn next_session_id() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
 pub type EventSender = tokio::sync::mpsc::UnboundedSender<MessageEvent>;

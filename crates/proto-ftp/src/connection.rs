@@ -14,7 +14,7 @@ use proto_core::{Direction, EventKind, EventSender, MessageEvent, Protocol, User
 use crate::command::Command;
 use crate::listing::{format_list_line, format_mdtm, format_mlsx_facts};
 use crate::session::{DataChannel, Session};
-use crate::tls::{AsyncStream, BoxedStream, TlsUpgrader};
+use crate::tls::{AsyncStream, BoxedStream, TlsRole, TlsUpgrader};
 
 const FEATURES: &[&str] = &[
     "MDTM",
@@ -37,6 +37,7 @@ struct Endpoints {
     local: SocketAddr,
     protocol: Protocol,
     encrypted: bool,
+    session: u64,
 }
 
 enum TransferError {
@@ -84,13 +85,15 @@ pub async fn handle_client<S>(
 where
     S: AsyncStream + 'static,
 {
+    let session_id = proto_core::next_session_id();
     let mut ep = Endpoints {
         peer,
         local,
         protocol,
         encrypted: false,
+        session: session_id,
     };
-    let mut session = Session::new(root, protocol, tls.clone());
+    let mut session = Session::new(session_id, root, protocol, tls.clone());
     let mut stream: BoxedStream = Box::new(stream);
 
     emit(
@@ -109,7 +112,7 @@ where
                 "implicit FTPS needs a TLS upgrader",
             )
         })?;
-        let (secured, info) = upgrader.upgrade(stream).await?;
+        let (secured, info) = upgrader.upgrade(stream, TlsRole::Control).await?;
         stream = secured;
         session.tls_active = true;
         emit(
@@ -600,7 +603,7 @@ where
                     )
                     .await?;
                     let plain = reader.into_inner().unsplit(writer);
-                    let (secured, info) = upgrader.upgrade(plain).await?;
+                    let (secured, info) = upgrader.upgrade(plain, TlsRole::Control).await?;
                     let (read_half, write_half) = tokio::io::split(secured);
                     reader = BufReader::new(read_half);
                     writer = write_half;
@@ -763,7 +766,8 @@ fn emit(
     let encrypted = ep.encrypted && matches!(kind, EventKind::Message | EventKind::Data);
     let _ = events.send(
         MessageEvent::new(ep.protocol, kind, direction, ep.peer, ep.local, raw, parsed)
-            .with_encrypted(encrypted),
+            .with_encrypted(encrypted)
+            .with_session(ep.session),
     );
 }
 
@@ -785,7 +789,8 @@ fn emit_data(
             parsed,
         )
         .with_length(length)
-        .with_encrypted(ep.encrypted),
+        .with_encrypted(ep.encrypted)
+        .with_session(ep.session),
     );
 }
 
@@ -806,6 +811,7 @@ async fn open_data_connection(
         local: tcp.local_addr()?,
         protocol: session.protocol,
         encrypted: false,
+        session: session.id,
     };
     emit(
         events,
@@ -820,7 +826,7 @@ async fn open_data_connection(
     if session.prot_private {
         if let Some(upgrader) = &session.tls {
             let (secured, info) = upgrader
-                .upgrade(data)
+                .upgrade(data, TlsRole::Data)
                 .await
                 .map_err(|_| TransferError::TlsNegotiation)?;
             data = secured;
@@ -928,6 +934,7 @@ async fn receive_file(
     let bytes = copy_until_eof(&mut data, &mut file)
         .await
         .map_err(|e| classify(e, ep.encrypted))?;
+    data.shutdown().await.ok();
     file.flush().await?;
     emit_data(
         events,

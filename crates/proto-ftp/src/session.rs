@@ -14,6 +14,7 @@ pub enum DataChannel {
 }
 
 pub struct Session {
+    pub id: u64,
     pub root: PathBuf,
     pub cwd: PathBuf,
     pub protocol: Protocol,
@@ -31,8 +32,9 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(root: PathBuf, protocol: Protocol, tls: Option<TlsUpgrader>) -> Self {
+    pub fn new(id: u64, root: PathBuf, protocol: Protocol, tls: Option<TlsUpgrader>) -> Self {
         Session {
+            id,
             root,
             cwd: PathBuf::from("/"),
             protocol,
