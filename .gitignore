@@ -1,4 +1,4 @@
 /target
-/app/shared/*
-/app/database/*
+/ftpeek/shared/*
+/ftpeek/database/*
 .DS_Store

@@ -77,7 +77,6 @@ pub fn AppShell() -> Element {
                                 span { class: "info-modal__tag", "Tokio" }
                                 span { class: "info-modal__tag", "rustls" }
                                 span { class: "info-modal__tag", "russh" }
-                                span { class: "info-modal__tag", "clap" }
                             }
                         }
                     }

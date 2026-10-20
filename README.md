@@ -41,13 +41,12 @@ protocols.
 
 ```
 crates/
-  proto-core/     shared message-log types used by every protocol server
+  proto-core/     shared message-log types + user database
   proto-ftp/      FTP server
-  proto-ftps/     FTP server (TLS)
+  proto-ftps/     FTP server over TLS
   proto-tftp/     TFTP server
   proto-sftp/     SFTP server
-app/              Dioxus desktop app
-documentation/    docs, lab exercise
+ftpeek/           Dioxus desktop application
 ```
 
 ## Documentation
@@ -58,11 +57,11 @@ cargo doc --workspace --no-deps --document-private-items --open
 ```
 For future releases, documentation will include GitHub Pages support
 
-## Building on your own machine
+## Running manually on your own machine
 
 ```
 cargo build --workspace
-cd app/
+cd ftpeek/
 dx serve
 ```
 
@@ -81,7 +80,6 @@ FTPeek is built in Rust and powered by the following open-source dependencies:
 * **[rcgen](https://github.com/est31/rcgen)** — X.509 certificate generation library (`MIT` / `Apache-2.0`)
 
 ### Utilities & Infrastructure
-* **[Clap](https://docs.rs/clap/)** — Command Line Argument Parser (`MIT` / `Apache-2.0`)
 * **[Serde](https://serde.rs/)** — Serialization and deserialization framework (`MIT` / `Apache-2.0`)
 * **[Tracing](https://github.com/tokio-rs/tracing)** & **[tracing-subscriber](https://github.com/tokio-rs/tracing)** — Application-level tracing and logging (`MIT`)
 * **[Anyhow](https://github.com/dtolnay/anyhow)** & **[thiserror](https://github.com/dtolnay/thiserror)** — Flexible error handling (`MIT` / `Apache-2.0`)

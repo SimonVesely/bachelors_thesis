@@ -5,8 +5,7 @@ members = [
     "crates/proto-tftp",
     "crates/proto-ftps",
     "crates/proto-sftp",
-    "server-cli",
-    "app", "app",
+    "ftpeek", 
 ]
 resolver = "2"
 
@@ -16,6 +15,7 @@ edition = "2024"
 license = "GPL-3.0-only"
 
 [workspace.dependencies]
+
 anyhow = "1.0"
 bytes = "1.12"
 rcgen = "0.14"

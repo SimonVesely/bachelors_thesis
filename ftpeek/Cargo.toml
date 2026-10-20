@@ -1,9 +1,13 @@
 [package]
-name = "app"
-license = "GPL-3.0-only"
-version = "0.1.0"
+name = "ftpeek"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 authors = ["SimonVesely <simvesely@gmail.com>"]
-edition = "2024"
+
+[[bin]]
+name = "FTPeek"
+path = "src/main.rs"
 
 [dependencies]
 dioxus = { version = "0.7.1", features = ["router"] }
@@ -20,10 +24,4 @@ base64         = "0.23.1"
 
 [features]
 default = ["desktop"]
-web = ["dioxus/web"]
 desktop = ["dioxus/desktop"]
-mobile = ["dioxus/mobile"]
-
-[[bin]]
-name = "FTPeek"
-path = "src/main.rs"

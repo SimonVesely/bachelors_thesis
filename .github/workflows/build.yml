@@ -48,7 +48,7 @@ jobs:
           workspaces: ". -> target"
 
       - name: Build portable binary
-        run: cargo build --release --package app
+        run: cargo build --release --package ftpeek
 
       - name: Archive portable binary (unix)
         if: matrix.os != 'windows-latest'
@@ -69,7 +69,7 @@ jobs:
         run: cargo install dioxus-cli --locked
 
       - name: Bundle app (release)
-        run: dx bundle --release --desktop --package app
+        run: dx bundle --release --desktop --package ftpeek
 
       - name: Locate bundle
         shell: bash
