@@ -2,13 +2,29 @@ name: Build binaries
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
-  pull_request:
   workflow_dispatch:
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches Cargo.toml version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          # The line right under [workspace.package] is: version = "x.y.z"
+          CARGO_VERSION=$(grep -A1 '^\[workspace.package\]' Cargo.toml | sed -n 's/^version = "\(.*\)"/\1/p')
+          if [ "v$CARGO_VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $CARGO_VERSION"
+            exit 1
+          fi
+          echo "Version $CARGO_VERSION matches tag $GITHUB_REF_NAME"
+
   build:
+    needs: version
     strategy:
       fail-fast: false
       matrix:
@@ -101,6 +117,43 @@ jobs:
         with:
           name: ${{ matrix.asset_name }}
           path: dist/*
+
+  docs:
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build docs
+        run: cargo doc --workspace --no-deps --document-private-items
+
+      - name: Add index page
+        run: echo '<meta http-equiv="refresh" content="0; url=proto_core/index.html">' > target/doc/index.html
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/doc
+      - id: deploy
+        uses: actions/deploy-pages@v4
 
   release:
     needs: build

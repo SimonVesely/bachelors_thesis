@@ -5,14 +5,14 @@ members = [
     "crates/proto-tftp",
     "crates/proto-ftps",
     "crates/proto-sftp",
-    "ftpeek", 
+    "ftpeek",
 ]
 resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-license = "GPL-3.0-only"
+license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
 

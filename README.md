@@ -102,4 +102,9 @@ FTPeek is built in Rust and powered by the following open-source dependencies:
 
 ## License
 
-GPL-3.0-or-later — see [LICENSE](LICENSE).
+FTPeek — Application for analyzing the communication of file transfer protocols
+Copyright (C) 2026 Simon Veselý
+
+This program is free software: you can redistribute it and/or modify it under the terms of
+the GNU General Public License as published by the Free Software Foundation, either version 3
+of the License, or (at your option) any later version. See [LICENSE](LICENSE) for the full text.
