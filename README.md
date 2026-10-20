@@ -1,3 +1,10 @@
+[![Build](https://github.com/SimonVesely/bachelors_thesis/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/SimonVesely/bachelors_thesis/actions/workflows/build.yml)
+[![Docs](https://github.com/SimonVesely/bachelors_thesis/actions/workflows/docs.yml/badge.svg?branch=master)](https://simonvesely.github.io/bachelors_thesis/)
+[![Release](https://img.shields.io/github/v/release/SimonVesely/bachelors_thesis)](https://github.com/SimonVesely/bachelors_thesis/releases)
+[![License](https://img.shields.io/github/license/SimonVesely/bachelors_thesis)](LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-2024-orange?logo=rust)](https://www.rust-lang.org/)
+[![dependency status](https://deps.rs/repo/github/SimonVesely/bachelors_thesis/status.svg)](https://deps.rs/repo/github/SimonVesely/bachelors_thesis)
+
 # Protocol Analyzer — FTP / SFTP / FTPS / TFTP
 
 **Aplikace pro analýzu komunikace protokolů pro přenos souborů**
