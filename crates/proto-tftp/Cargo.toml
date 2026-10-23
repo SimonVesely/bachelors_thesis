@@ -5,3 +5,6 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
+proto-core = { workspace = true }
+tokio      = { workspace = true }
+tracing    = { workspace = true }

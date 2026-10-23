@@ -3675,6 +3675,11 @@ version = "0.1.6"
 [[package]]
 name = "proto-tftp"
 version = "0.1.6"
+dependencies = [
+ "proto-core",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "pulp"

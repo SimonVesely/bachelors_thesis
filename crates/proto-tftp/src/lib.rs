@@ -1,14 +1,7 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+mod packet;
+mod server;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use packet::{
+    ACCESS_VIOLATION, FILE_NOT_FOUND, ILLEGAL_OPERATION, NOT_DEFINED, Packet, Request, error_name,
+};
+pub use server::{MAX_BLKSIZE, TftpServerConfig, serve};
