@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
 use dioxus::prelude::*;
-use proto_core::{Direction, EventKind, MessageEvent};
+use proto_core::{Direction, EventKind, MessageEvent, Protocol};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClientInfo {
@@ -12,10 +12,14 @@ pub struct ClientInfo {
     pub connected: bool,
     pub packets: usize,
     pub data_bytes: u64,
+    pub transfer: Option<String>,
 }
 
 impl ClientInfo {
     pub fn label(&self) -> String {
+        if let Some(transfer) = &self.transfer {
+            return format!("#{} {} ({transfer})", self.session, self.addr);
+        }
         match (&self.user, self.logged_in) {
             (Some(user), true) => format!("#{} {} ({user})", self.session, self.addr),
             _ => format!("#{} {}", self.session, self.addr),
@@ -38,6 +42,7 @@ pub fn track_client(clients: &mut Vec<ClientInfo>, e: &MessageEvent) {
                 connected: true,
                 packets: 0,
                 data_bytes: 0,
+                transfer: None,
             });
             clients.len() - 1
         }
@@ -46,6 +51,10 @@ pub fn track_client(clients: &mut Vec<ClientInfo>, e: &MessageEvent) {
     client.packets += 1;
 
     let text = e.parsed.as_deref().unwrap_or_default();
+    if e.protocol == Protocol::Tftp {
+        track_tftp(client, e, text);
+        return;
+    }
     match (e.kind, e.direction) {
         (EventKind::Message, Direction::ClientToServer) => {
             if let Some(name) = strip_verb(text, "USER") {
@@ -63,6 +72,26 @@ pub fn track_client(clients: &mut Vec<ClientInfo>, e: &MessageEvent) {
         (EventKind::Data, _) => client.data_bytes += e.length as u64,
         (EventKind::TcpClose, _) if e.peer == client.addr => client.connected = false,
         _ => {}
+    }
+}
+
+fn track_tftp(client: &mut ClientInfo, e: &MessageEvent, text: &str) {
+    if let Some(file) = text.strip_prefix("Read Request, File: ") {
+        client.transfer = Some(format!(
+            "download {}",
+            file.split(", ").next().unwrap_or(file)
+        ));
+    } else if let Some(file) = text.strip_prefix("Write Request, File: ") {
+        client.transfer = Some(format!(
+            "upload {}",
+            file.split(", ").next().unwrap_or(file)
+        ));
+    }
+    if e.kind == EventKind::Data && !text.contains("[retransmission]") {
+        client.data_bytes += e.length.saturating_sub(4) as u64;
+    }
+    if text.contains("(last)") || text.starts_with("Error,") {
+        client.connected = false;
     }
 }
 
@@ -135,10 +164,11 @@ pub fn ClientList(clients: Signal<Vec<ClientInfo>>, filter: Signal<Option<u64>>)
                             }
                             span { class: "client-list__num", "{c.packets} pkts" }
                             span { class: "client-list__user",
-                                match (&c.user, c.logged_in) {
-                                    (Some(user), true) => rsx! { "{user}" },
-                                    (Some(user), false) => rsx! { span { class: "client-list__pending", "{user} (not logged in)" } },
-                                    (None, _) => rsx! { span { class: "client-list__pending", "not logged in" } },
+                                match (&c.transfer, &c.user, c.logged_in) {
+                                    (Some(transfer), _, _) => rsx! { "{transfer}" },
+                                    (None, Some(user), true) => rsx! { "{user}" },
+                                    (None, Some(user), false) => rsx! { span { class: "client-list__pending", "{user} (not logged in)" } },
+                                    (None, None, _) => rsx! { span { class: "client-list__pending", "not logged in" } },
                                 }
                             }
                             span { class: "client-list__num", "{format_bytes(c.data_bytes)}" }

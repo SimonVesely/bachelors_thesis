@@ -16,6 +16,7 @@ dioxus-core    = "0.7"
 proto-core     = { workspace = true }
 proto-ftp      = { workspace = true }
 proto-ftps     = { workspace = true }
+proto-tftp     = { workspace = true }
 tracing        = { workspace = true }
 rfd            = "0.17"
 tokio          = { workspace = true }

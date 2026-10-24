@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
-use proto_core::{EventKind, MessageEvent};
+use proto_core::{EventKind, MessageEvent, Protocol};
+use proto_tftp::{Packet, error_name};
 
 struct DetailView {
     frame_title: String,
@@ -15,6 +16,8 @@ struct DetailView {
     hex_label: &'static str,
     show_app: bool,
     tls_rows: Vec<(&'static str, String)>,
+    transport_title: &'static str,
+    app_rows: Vec<(&'static str, String)>,
 }
 
 fn build_view(idx: usize, e: &MessageEvent) -> DetailView {
@@ -46,7 +49,10 @@ fn build_view(idx: usize, e: &MessageEvent) -> DetailView {
         direction: format!("{:?}", e.direction),
         peer: e.peer.to_string(),
         local: e.local.to_string(),
-        protocol_title: format!("Application ({:?})", e.protocol),
+        protocol_title: match e.protocol {
+            Protocol::Tftp => "Trivial File Transfer Protocol".to_string(),
+            other => format!("Application ({other:?})"),
+        },
         info,
         hex: hex_dump(&e.raw),
         hex_label: if e.encrypted {
@@ -56,6 +62,62 @@ fn build_view(idx: usize, e: &MessageEvent) -> DetailView {
         },
         show_app: !matches!(e.kind, EventKind::Tls),
         tls_rows,
+        transport_title: match e.protocol {
+            Protocol::Tftp => "User Datagram Protocol",
+            _ => "Transmission Control Protocol",
+        },
+        app_rows: match e.protocol {
+            Protocol::Tftp => tftp_rows(&e.raw),
+            _ => Vec::new(),
+        },
+    }
+}
+
+fn tftp_rows(raw: &[u8]) -> Vec<(&'static str, String)> {
+    let opcode = |n: u16, name: &str| ("Opcode", format!("{name} ({n})"));
+    let options = |opts: &[(String, String)]| {
+        opts.iter()
+            .map(|(n, v)| format!("{n}={v}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    match Packet::parse(raw) {
+        Some(Packet::Rrq(r)) | Some(Packet::Wrq(r)) => {
+            let is_read = raw.get(1) == Some(&1);
+            let mut rows = vec![
+                if is_read {
+                    opcode(1, "Read Request")
+                } else {
+                    opcode(2, "Write Request")
+                },
+                ("Source file", r.filename),
+                ("Type", r.mode),
+            ];
+            if !r.options.is_empty() {
+                rows.push(("Options", options(&r.options)));
+            }
+            rows
+        }
+        Some(Packet::Data { block, data }) => vec![
+            opcode(3, "Data Packet"),
+            ("Block", block.to_string()),
+            ("Data length", format!("{} bytes", data.len())),
+        ],
+        Some(Packet::Ack { block }) => {
+            vec![opcode(4, "Acknowledgement"), ("Block", block.to_string())]
+        }
+        Some(Packet::Error { code, message }) => vec![
+            opcode(5, "Error Code"),
+            ("Error code", format!("{} ({code})", error_name(code))),
+            ("Error message", message),
+        ],
+        Some(Packet::Oack { options: o }) => {
+            vec![
+                opcode(6, "Option Acknowledgement"),
+                ("Options", options(&o)),
+            ]
+        }
+        None => vec![("Opcode", "malformed packet".to_string())],
     }
 }
 
@@ -96,7 +158,7 @@ pub fn PacketDetail(logs: Signal<Vec<MessageEvent>>, selected: Signal<Option<usi
                                 class: "detail-section__title",
                                 onclick: move |_| transport_open.toggle(),
                                 span { class: "detail-section__arrow", if transport_open() { "\u{25be}" } else { "\u{25b8}" } }
-                                "Transmission Control Protocol"
+                                "{v.transport_title}"
                             }
                             if transport_open() {
                                 div { class: "detail-section__body",
@@ -138,6 +200,12 @@ pub fn PacketDetail(logs: Signal<Vec<MessageEvent>>, selected: Signal<Option<usi
                                 }
                                 if app_open() {
                                     div { class: "detail-section__body",
+                                        for (label, value) in v.app_rows.iter() {
+                                            div { key: "{label}", class: "detail-row",
+                                                span { class: "detail-row__label", "{label}" }
+                                                span { class: "detail-row__value", "{value}" }
+                                            }
+                                        }
                                         div { class: "detail-row", span { class: "detail-row__label", "Info" } span { class: "detail-row__value", "{v.info}" } }
                                         if !v.hex.is_empty() {
                                             div { class: "detail-hex",

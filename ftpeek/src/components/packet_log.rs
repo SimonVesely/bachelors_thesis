@@ -37,6 +37,9 @@ fn proto_label(e: &MessageEvent) -> String {
 
 fn info_text(e: &MessageEvent) -> String {
     let text = e.parsed.clone().unwrap_or_default();
+    if e.protocol == Protocol::Tftp {
+        return text;
+    }
     match (e.kind, e.direction) {
         (EventKind::Message, Direction::ClientToServer) => format!("Request: {text}"),
         (EventKind::Message, Direction::ServerToClient) => format!("Response: {text}"),
@@ -53,7 +56,8 @@ fn group_boundaries(entries: &[&MessageEvent]) -> Vec<bool> {
             || matches!(
                 (e.kind, e.direction),
                 (EventKind::Message, Direction::ClientToServer)
-            );
+            )
+            || (e.protocol == Protocol::Tftp && e.direction == Direction::ClientToServer);
         if starts_new_group && !ids.is_empty() {
             group_id += 1;
         }

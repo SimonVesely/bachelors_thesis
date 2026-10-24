@@ -7,6 +7,7 @@ use tokio::sync::broadcast;
 use proto_core::{MessageEvent, event_channel};
 use proto_ftp::FtpServerConfig;
 use proto_ftps::{FtpsMode, FtpsServerConfig};
+use proto_tftp::TftpServerConfig;
 
 use super::{
     ClientInfo, ClientList, DirectoryPreview, PacketDetail, PacketDiagram, PacketLog, track_client,
@@ -17,8 +18,13 @@ use crate::{AppState, Route};
 pub fn Status(mode: String, protocol: String) -> Element {
     let state = use_context::<AppState>();
 
+    let is_ftps = protocol == "ftps";
+    let is_tftp = protocol == "tftp";
+    let is_supported = mode == "server" && (protocol == "ftp" || is_ftps || is_tftp);
+    let default_port: u16 = if is_tftp { 69 } else { 21 };
+
     let mut root_dir = use_signal(|| "shared".to_string());
-    let mut pi_port = use_signal(|| 21u16);
+    let mut pi_port = use_signal(move || default_port);
     let mut dtp_port = use_signal(|| 20u16);
     let mut running = use_signal(|| false);
     let mut logs = use_signal(Vec::<MessageEvent>::new);
@@ -28,17 +34,19 @@ pub fn Status(mode: String, protocol: String) -> Element {
     let mut error_msg = use_signal(|| None::<String>);
     let mut shutdown_tx = use_signal(|| None::<broadcast::Sender<()>>);
     let mut ftps_implicit = use_signal(|| false);
+    let mut tftp_allow_write = use_signal(|| true);
 
-    let is_ftps = protocol == "ftps";
-    let is_supported = mode == "server" && (protocol == "ftp" || is_ftps);
-
-    let access_label = if (state.anonymous)() {
+    let access_label = if is_tftp {
+        "none (TFTP has no login)".to_string()
+    } else if (state.anonymous)() {
         "anonymous".to_string()
     } else {
         format!("{} user(s)", state.user_names.read().len())
     };
 
-    let protocol_label = if !is_ftps {
+    let protocol_label = if is_tftp {
+        "TFTP"
+    } else if !is_ftps {
         "FTP"
     } else if ftps_implicit() {
         "FTPS (implicit)"
@@ -65,7 +73,7 @@ pub fn Status(mode: String, protocol: String) -> Element {
         let (shutdown_send, shutdown_recv) = broadcast::channel(4);
         shutdown_tx.set(Some(shutdown_send));
 
-        let users = if (state.anonymous)() {
+        let users = if is_tftp || (state.anonymous)() {
             None
         } else {
             match &*state.users.read() {
@@ -77,6 +85,12 @@ pub fn Status(mode: String, protocol: String) -> Element {
             }
         };
 
+        let tftp_cfg = TftpServerConfig {
+            bind_addr: bind_ip,
+            port: pi_port(),
+            root_dir: root.clone(),
+            allow_write: tftp_allow_write(),
+        };
         let cfg = FtpServerConfig {
             bind_addr: bind_ip,
             control_port: pi_port(),
@@ -92,7 +106,9 @@ pub fn Status(mode: String, protocol: String) -> Element {
         };
 
         spawn(async move {
-            let result = if is_ftps {
+            let result = if is_tftp {
+                proto_tftp::serve(tftp_cfg, tx, shutdown_recv).await
+            } else if is_ftps {
                 proto_ftps::serve(
                     FtpsServerConfig {
                         ftp: cfg,
@@ -135,7 +151,7 @@ pub fn Status(mode: String, protocol: String) -> Element {
 
             if !is_supported {
                 p { class: "section-subtitle",
-                    "Only the FTP and FTPS servers are wired up so far - {protocol} for {mode} isn't running yet."
+                    "Only the FTP, FTPS and TFTP servers are wired up so far - {protocol} for {mode} isn't running yet."
                 }
             } else {
                 div { class: "status-grid",
@@ -188,6 +204,19 @@ pub fn Status(mode: String, protocol: String) -> Element {
                                     }
                                 }
                             }
+                            if is_tftp {
+                                div { class: "status-summary__item status-summary__item--wide",
+                                    span { class: "status-summary__label", "Uploads (WRQ)" }
+                                    select {
+                                        class: "status-summary__input",
+                                        disabled: running(),
+                                        value: if tftp_allow_write() { "allow" } else { "deny" },
+                                        onchange: move |e| tftp_allow_write.set(e.value() == "allow"),
+                                        option { value: "allow", "Allowed - clients can upload and overwrite files" }
+                                        option { value: "deny", "Disabled - read only, uploads get ERROR 2" }
+                                    }
+                                }
+                            }
                             div { class: "status-summary__item status-summary__item--wide",
                                 span { class: "status-summary__label", "Root directory" }
                                 div { class: "status-summary__field-row",
@@ -212,7 +241,7 @@ pub fn Status(mode: String, protocol: String) -> Element {
                                 }
                             }
                             div { class: "status-summary__item",
-                                span { class: "status-summary__label", "PI port (control)" }
+                                span { class: "status-summary__label", if is_tftp { "Port (UDP)" } else { "PI port (control)" } }
                                 input {
                                     class: "status-summary__input",
                                     r#type: "number",
@@ -225,18 +254,25 @@ pub fn Status(mode: String, protocol: String) -> Element {
                                     },
                                 }
                             }
-                            div { class: "status-summary__item",
-                                span { class: "status-summary__label", "DTP port (PASV)" }
-                                input {
-                                    class: "status-summary__input",
-                                    r#type: "number",
-                                    value: "{dtp_port}",
-                                    disabled: running(),
-                                    oninput: move |e| {
-                                        if let Ok(v) = e.value().parse() {
-                                            dtp_port.set(v);
-                                        }
-                                    },
+                            if !is_tftp {
+                                div { class: "status-summary__item",
+                                    span { class: "status-summary__label", "DTP port (PASV)" }
+                                    input {
+                                        class: "status-summary__input",
+                                        r#type: "number",
+                                        value: "{dtp_port}",
+                                        disabled: running(),
+                                        oninput: move |e| {
+                                            if let Ok(v) = e.value().parse() {
+                                                dtp_port.set(v);
+                                            }
+                                        },
+                                    }
+                                }
+                            }
+                            if is_tftp {
+                                p { class: "status-hint",
+                                    "TFTP has no login: anyone who reaches this port can download every file in the root directory."
                                 }
                             }
                             if is_ftps {
