@@ -1,7 +1,14 @@
+use std::net::SocketAddr;
+use std::time::SystemTime;
+
 use dioxus::prelude::*;
+use proto_core::capture::{ACK, App, Packet, SYN};
 use proto_core::{Direction, EventKind, MessageEvent, Protocol};
 
 use super::ClientInfo;
+
+const ROW_HEIGHT: f64 = 20.0;
+const OVERSCAN: usize = 15;
 
 struct Row {
     class: String,
@@ -15,7 +22,7 @@ struct Row {
     end_of_group: bool,
 }
 
-fn proto_label(e: &MessageEvent) -> String {
+fn event_proto(e: &MessageEvent) -> String {
     let base = match (e.kind, e.protocol) {
         (EventKind::TcpOpen | EventKind::TcpClose, _) => return "TCP".to_string(),
         (EventKind::Tls, _) => return "TLS".to_string(),
@@ -35,7 +42,7 @@ fn proto_label(e: &MessageEvent) -> String {
     }
 }
 
-fn info_text(e: &MessageEvent) -> String {
+fn event_info(e: &MessageEvent) -> String {
     let text = e.parsed.clone().unwrap_or_default();
     if e.protocol == Protocol::Tftp {
         return text;
@@ -47,94 +54,140 @@ fn info_text(e: &MessageEvent) -> String {
     }
 }
 
-fn group_boundaries(entries: &[&MessageEvent]) -> Vec<bool> {
-    let mut group_id = 0usize;
-    let mut ids = Vec::with_capacity(entries.len());
+fn event_starts_group(e: &MessageEvent) -> bool {
+    e.kind == EventKind::TcpOpen
+        || (e.kind == EventKind::Message && e.direction == Direction::ClientToServer)
+        || (e.protocol == Protocol::Tftp && e.direction == Direction::ClientToServer)
+}
 
-    for e in entries {
-        let starts_new_group = matches!(e.kind, EventKind::TcpOpen)
-            || matches!(
-                (e.kind, e.direction),
-                (EventKind::Message, Direction::ClientToServer)
-            )
-            || (e.protocol == Protocol::Tftp && e.direction == Direction::ClientToServer);
-        if starts_new_group && !ids.is_empty() {
-            group_id += 1;
-        }
-        ids.push(group_id);
+fn packet_starts_group(p: &Packet) -> bool {
+    p.tcp_flags & (SYN | ACK) == SYN
+        || (p.direction == Direction::ClientToServer
+            && matches!(p.app, App::Ftp | App::Tls | App::Tftp))
+}
+
+fn event_row(no: usize, e: &MessageEvent, t0: SystemTime, current: Option<usize>) -> Row {
+    let (src, dst) = match e.direction {
+        Direction::ClientToServer => (e.peer, e.local),
+        Direction::ServerToClient => (e.local, e.peer),
+    };
+    let mut class = match (e.kind, e.direction) {
+        (EventKind::TcpOpen | EventKind::TcpClose, _) => "pkt--tcp".to_string(),
+        (EventKind::Tls, _) => "pkt--tls".to_string(),
+        (_, Direction::ClientToServer) => "pkt--in".to_string(),
+        (_, Direction::ServerToClient) => "pkt--out".to_string(),
+    };
+    if e.encrypted {
+        class.push_str(" pkt--enc");
     }
+    if current == Some(no - 1) {
+        class.push_str(" pkt--selected");
+    }
+    Row {
+        class,
+        no,
+        time: elapsed(e.timestamp, t0),
+        src: src.to_string(),
+        dst: dst.to_string(),
+        proto: event_proto(e),
+        len: e.length,
+        info: event_info(e),
+        end_of_group: false,
+    }
+}
 
-    (0..ids.len())
-        .map(|i| i == ids.len() - 1 || ids[i + 1] != ids[i])
-        .collect()
+fn packet_row(no: usize, p: &Packet, t0: SystemTime, current: Option<usize>) -> Row {
+    let mut class = match (p.app, p.direction) {
+        (App::Tcp, _) => "pkt--tcp".to_string(),
+        (App::Tls, _) => "pkt--tls".to_string(),
+        (_, Direction::ClientToServer) => "pkt--in".to_string(),
+        (_, Direction::ServerToClient) => "pkt--out".to_string(),
+    };
+    if current == Some(no - 1) {
+        class.push_str(" pkt--selected");
+    }
+    Row {
+        class,
+        no,
+        time: elapsed(p.timestamp, t0),
+        src: p.src.to_string(),
+        dst: p.dst.to_string(),
+        proto: p.protocol.clone(),
+        len: p.wire_len as usize,
+        info: p.info.clone(),
+        end_of_group: false,
+    }
+}
+
+fn elapsed(t: SystemTime, t0: SystemTime) -> String {
+    let secs = t.duration_since(t0).unwrap_or_default().as_secs_f64();
+    format!("{secs:.6}")
 }
 
 #[component]
 pub fn PacketLog(
     logs: Signal<Vec<MessageEvent>>,
+    packets: Signal<Vec<Packet>>,
+    wire: Signal<bool>,
     selected: Signal<Option<usize>>,
     clients: Signal<Vec<ClientInfo>>,
     filter: Signal<Option<u64>>,
 ) -> Element {
     let mut logs = logs;
+    let mut packets = packets;
     let mut selected = selected;
     let mut filter = filter;
     let mut autoscroll = use_signal(|| true);
+    let mut scroll_top = use_signal(|| 0.0f64);
+    let mut view_height = use_signal(|| 600.0f64);
 
-    let (rows, total): (Vec<Row>, usize) = {
-        let all = logs.read();
-        let t0 = all.first().map(|e| e.timestamp);
-        let current = selected();
-        let only = filter();
-        let shown: Vec<(usize, &MessageEvent)> = all
-            .iter()
-            .enumerate()
-            .filter(|(_, e)| only.is_none_or(|id| e.session == id))
-            .collect();
-        let events: Vec<&MessageEvent> = shown.iter().map(|(_, e)| *e).collect();
-        let ends = group_boundaries(&events);
+    let current = selected();
+    let only = filter();
+    let addrs: Vec<SocketAddr> = only
+        .and_then(|id| {
+            clients
+                .read()
+                .iter()
+                .find(|c| c.session == id)
+                .map(|c| c.addrs.clone())
+        })
+        .unwrap_or_default();
 
-        let rows = shown
-            .iter()
-            .zip(ends)
-            .map(|(&(i, e), end_of_group)| {
-                let elapsed = t0
-                    .and_then(|t| e.timestamp.duration_since(t).ok())
-                    .unwrap_or_default()
-                    .as_secs_f64();
-                let (src, dst) = match e.direction {
-                    Direction::ClientToServer => (e.peer, e.local),
-                    Direction::ServerToClient => (e.local, e.peer),
-                };
-                let mut class = match (e.kind, e.direction) {
-                    (EventKind::TcpOpen | EventKind::TcpClose, _) => "pkt--tcp".to_string(),
-                    (EventKind::Tls, _) => "pkt--tls".to_string(),
-                    (_, Direction::ClientToServer) => "pkt--in".to_string(),
-                    (_, Direction::ServerToClient) => "pkt--out".to_string(),
-                };
-                if e.encrypted {
-                    class.push_str(" pkt--enc");
-                }
-                if current == Some(i) {
-                    class.push_str(" pkt--selected");
-                }
-                Row {
-                    class,
-                    no: i + 1,
-                    time: format!("{elapsed:.6}"),
-                    src: src.to_string(),
-                    dst: dst.to_string(),
-                    proto: proto_label(e),
-                    len: e.length,
-                    info: info_text(e),
-                    end_of_group,
-                }
+    let (rows, shown, total) = if wire() {
+        let all = packets.read();
+        let t0 = all.first().map_or(SystemTime::UNIX_EPOCH, |p| p.timestamp);
+        let shown: Vec<usize> = (0..all.len())
+            .filter(|&i| {
+                only.is_none() || addrs.contains(&all[i].src) || addrs.contains(&all[i].dst)
             })
             .collect();
-        (rows, all.len())
+        let rows = visible(
+            &shown,
+            scroll_top(),
+            view_height(),
+            |i| packet_row(i + 1, &all[i], t0, current),
+            |i| packet_starts_group(&all[i]),
+        );
+        (rows, shown.len(), all.len())
+    } else {
+        let all = logs.read();
+        let t0 = all.first().map_or(SystemTime::UNIX_EPOCH, |e| e.timestamp);
+        let shown: Vec<usize> = (0..all.len())
+            .filter(|&i| only.is_none_or(|id| all[i].session == id))
+            .collect();
+        let rows = visible(
+            &shown,
+            scroll_top(),
+            view_height(),
+            |i| event_row(i + 1, &all[i], t0, current),
+            |i| event_starts_group(&all[i]),
+        );
+        (rows, shown.len(), all.len())
     };
-    let count_label = if filter().is_some() {
-        format!("{} of {total} packets", rows.len())
+    let (first, last) = window(shown, scroll_top(), view_height());
+
+    let count_label = if only.is_some() {
+        format!("{shown} of {total} packets")
     } else {
         format!("{total} packets")
     };
@@ -145,8 +198,8 @@ pub fn PacketLog(
         .collect();
 
     use_effect(move || {
-        let count = logs.read().len();
-        let _ = filter(); // also jump to the bottom when the filter changes
+        let count = logs.read().len() + packets.read().len();
+        let _ = filter();
         if autoscroll() && count > 0 {
             let _ = document::eval(
                 "var el = document.getElementById('packet-scroll'); if (el) { el.scrollTop = el.scrollHeight; }",
@@ -181,15 +234,22 @@ pub fn PacketLog(
                     class: "btn btn--ghost",
                     onclick: move |_| {
                         logs.write().clear();
+                        packets.write().clear();
                         selected.set(None);
                     },
                     "Clear"
                 }
             }
-            div { id: "packet-scroll", class: "packet-log__body",
-                if rows.is_empty() {
+            div {
+                id: "packet-scroll",
+                class: "packet-log__body",
+                onscroll: move |e| {
+                    scroll_top.set(e.data().scroll_top());
+                    view_height.set(e.data().client_height() as f64);
+                },
+                if shown == 0 {
                     p { class: "packet-log__empty",
-                        if filter().is_some() { "No packets from this client." } else { "No packets captured yet." }
+                        if only.is_some() { "No packets from this client." } else { "No packets captured yet." }
                     }
                 } else {
                     table { class: "packet-table",
@@ -214,6 +274,9 @@ pub fn PacketLog(
                             }
                         }
                         tbody {
+                            tr { class: "packet-table__spacer", style: "height: {first as f64 * ROW_HEIGHT}px",
+                                td { colspan: 7 }
+                            }
                             for row in rows.iter() {
                                 tr {
                                     key: "{row.no}",
@@ -228,8 +291,11 @@ pub fn PacketLog(
                                     td { "{row.dst}" }
                                     td { "{row.proto}" }
                                     td { class: "packet-table__num", "{row.len}" }
-                                    td { class: "packet-table__info", "{row.info}" }
+                                    td { class: "packet-table__info", title: "{row.info}", "{row.info}" }
                                 }
+                            }
+                            tr { class: "packet-table__spacer", style: "height: {(shown - last) as f64 * ROW_HEIGHT}px",
+                                td { colspan: 7 }
                             }
                         }
                     }
@@ -237,4 +303,29 @@ pub fn PacketLog(
             }
         }
     }
+}
+
+fn window(shown: usize, scroll_top: f64, view_height: f64) -> (usize, usize) {
+    let first = ((scroll_top / ROW_HEIGHT) as usize)
+        .saturating_sub(OVERSCAN)
+        .min(shown);
+    let last = (first + (view_height / ROW_HEIGHT) as usize + 2 * OVERSCAN).min(shown);
+    (first, last)
+}
+
+fn visible(
+    shown: &[usize],
+    scroll_top: f64,
+    view_height: f64,
+    row: impl Fn(usize) -> Row,
+    starts_group: impl Fn(usize) -> bool,
+) -> Vec<Row> {
+    let (first, last) = window(shown.len(), scroll_top, view_height);
+    (first..last)
+        .map(|pos| {
+            let mut r = row(shown[pos]);
+            r.end_of_group = shown.get(pos + 1).is_none_or(|&next| starts_group(next));
+            r
+        })
+        .collect()
 }

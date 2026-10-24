@@ -940,3 +940,15 @@ body {
 .packet-log__count,
 .packet-log__autoscroll { white-space: nowrap; }
 .packet-log__filter { width: auto; flex: 0 1 240px; min-width: 0; padding: 4px 8px; font-size: 0.75rem; }
+
+.packet-table tbody tr { height: 20px; }
+.packet-table td.packet-table__info { white-space: nowrap; word-break: normal; text-overflow: ellipsis; }
+.packet-table__spacer td { padding: 0 !important; border: 0 !important; }
+.packet-table__spacer { background: transparent; }
+.status-summary__check { display: flex; align-items: center; gap: 8px; font-size: 0.8125rem; cursor: pointer; }
+.status-summary__note { font-size: 0.75rem; color: #8a5a00; }
+.status-summary__note--ok { color: #1e7a34; }
+.detail-row { cursor: default; }
+.detail-row--marked { background: #dbe7f7; }
+.hex-mark { background: #0057b8; color: #ffffff; }
+.packet-table col.col-no { width: 64px; }

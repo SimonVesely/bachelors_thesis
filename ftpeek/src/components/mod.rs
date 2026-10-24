@@ -1,5 +1,7 @@
 mod client_list;
 mod directory_preview;
+mod frame_detail;
+mod frame_diagram;
 mod mode_select;
 mod packet_detail;
 mod packet_diagram;
@@ -12,6 +14,8 @@ mod user_manager;
 
 pub use client_list::{ClientInfo, ClientList, track_client};
 pub use directory_preview::DirectoryPreview;
+pub use frame_detail::FrameDetail;
+pub use frame_diagram::FrameDiagram;
 pub use mode_select::ModeSelect;
 pub use packet_detail::PacketDetail;
 pub use packet_diagram::PacketDiagram;

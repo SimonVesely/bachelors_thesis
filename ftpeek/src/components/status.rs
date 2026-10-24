@@ -1,16 +1,19 @@
 use std::net::IpAddr;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use dioxus::prelude::*;
 use tokio::sync::broadcast;
 
-use proto_core::{MessageEvent, event_channel};
+use proto_core::capture::{Capture, CaptureConfig, Dissector, Packet};
+use proto_core::{MessageEvent, Protocol, event_channel};
 use proto_ftp::FtpServerConfig;
 use proto_ftps::{FtpsMode, FtpsServerConfig};
 use proto_tftp::TftpServerConfig;
 
 use super::{
-    ClientInfo, ClientList, DirectoryPreview, PacketDetail, PacketDiagram, PacketLog, track_client,
+    ClientInfo, ClientList, DirectoryPreview, FrameDetail, FrameDiagram, PacketDetail,
+    PacketDiagram, PacketLog, track_client,
 };
 use crate::{AppState, Route};
 
@@ -28,13 +31,18 @@ pub fn Status(mode: String, protocol: String) -> Element {
     let mut dtp_port = use_signal(|| 20u16);
     let mut running = use_signal(|| false);
     let mut logs = use_signal(Vec::<MessageEvent>::new);
-    let selected = use_signal(|| None::<usize>);
+    let mut selected = use_signal(|| None::<usize>);
     let mut clients = use_signal(Vec::<ClientInfo>::new);
     let filter = use_signal(|| None::<u64>);
     let mut error_msg = use_signal(|| None::<String>);
     let mut shutdown_tx = use_signal(|| None::<broadcast::Sender<()>>);
     let mut ftps_implicit = use_signal(|| false);
     let mut tftp_allow_write = use_signal(|| true);
+    let mut packets = use_signal(Vec::<Packet>::new);
+    let mut use_pcap = use_signal(|| true);
+    let mut wire = use_signal(|| false);
+    let mut capture = use_signal(|| None::<Capture>);
+    let mut capture_note = use_signal(|| None::<String>);
 
     let access_label = if is_tftp {
         "none (TFTP has no login)".to_string()
@@ -105,6 +113,51 @@ pub fn Status(mode: String, protocol: String) -> Element {
             FtpsMode::Explicit
         };
 
+        let capture_cfg = CaptureConfig {
+            server_ip: bind_ip,
+            protocol: match (is_tftp, is_ftps) {
+                (true, _) => Protocol::Tftp,
+                (_, true) => Protocol::Ftps,
+                _ => Protocol::Ftp,
+            },
+            ports: if is_tftp {
+                vec![pi_port()]
+            } else {
+                vec![pi_port(), dtp_port()]
+            },
+        };
+        let (frame_tx, mut frame_rx) = tokio::sync::mpsc::unbounded_channel();
+        let started = match use_pcap() {
+            true => proto_core::capture::start(&capture_cfg, frame_tx)
+                .map_err(|e| format!("unavailable: {e}")),
+            false => Err("off".to_string()),
+        };
+        selected.set(None);
+        match started {
+            Ok(cap) => {
+                capture_note.set(Some(format!("live on {}", cap.interfaces.join(" + "))));
+                capture.set(Some(cap));
+                wire.set(true);
+                spawn(async move {
+                    let mut dissector = Dissector::new(capture_cfg);
+                    while let Some(frame) = frame_rx.recv().await {
+                        let mut batch: Vec<Packet> = dissector.dissect(frame).into_iter().collect();
+                        while let Ok(frame) = frame_rx.try_recv() {
+                            batch.extend(dissector.dissect(frame));
+                        }
+                        if !batch.is_empty() {
+                            packets.write().extend(batch);
+                        }
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                    }
+                });
+            }
+            Err(err) => {
+                capture_note.set(Some(format!("{err} - showing the app-level log")));
+                wire.set(false);
+            }
+        }
+
         spawn(async move {
             let result = if is_tftp {
                 proto_tftp::serve(tftp_cfg, tx, shutdown_recv).await
@@ -123,6 +176,9 @@ pub fn Status(mode: String, protocol: String) -> Element {
             };
             if let Err(err) = result {
                 error_msg.set(Some(format!("Server error: {err}")));
+            }
+            if capture.write().take().is_some() {
+                capture_note.set(Some("stopped - captured frames stay in the log".into()));
             }
             running.set(false);
         });
@@ -270,6 +326,21 @@ pub fn Status(mode: String, protocol: String) -> Element {
                                     }
                                 }
                             }
+                            div { class: "status-summary__item status-summary__item--wide",
+                                span { class: "status-summary__label", "Packet capture" }
+                                label { class: "status-summary__check",
+                                    input {
+                                        r#type: "checkbox",
+                                        checked: use_pcap(),
+                                        disabled: running(),
+                                        onchange: move |e| use_pcap.set(e.checked()),
+                                    }
+                                    "Capture frames with pcap (Wireshark view)"
+                                }
+                                if let Some(note) = capture_note() {
+                                    span { class: if wire() { "status-summary__note status-summary__note--ok" } else { "status-summary__note" }, "{note}" }
+                                }
+                            }
                             if is_tftp {
                                 p { class: "status-hint",
                                     "TFTP has no login: anyone who reaches this port can download every file in the root directory."
@@ -296,15 +367,23 @@ pub fn Status(mode: String, protocol: String) -> Element {
                     }
 
                     div { class: "status-grid__cell",
-                        PacketLog { logs, selected, clients, filter }
+                        PacketLog { logs, packets, wire, selected, clients, filter }
                     }
 
                     div { class: "status-grid__cell status-grid__cell--split",
                         div { class: "status-grid__sub",
-                            PacketDetail { logs, selected }
+                            if wire() {
+                                FrameDetail { packets, selected }
+                            } else {
+                                PacketDetail { logs, selected }
+                            }
                         }
                         div { class: "status-grid__sub",
-                            PacketDiagram { logs, selected }
+                            if wire() {
+                                FrameDiagram { packets, selected }
+                            } else {
+                                PacketDiagram { logs, selected }
+                            }
                         }
                     }
                 }

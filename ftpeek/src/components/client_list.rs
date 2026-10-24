@@ -13,6 +13,7 @@ pub struct ClientInfo {
     pub packets: usize,
     pub data_bytes: u64,
     pub transfer: Option<String>,
+    pub addrs: Vec<SocketAddr>,
 }
 
 impl ClientInfo {
@@ -43,12 +44,16 @@ pub fn track_client(clients: &mut Vec<ClientInfo>, e: &MessageEvent) {
                 packets: 0,
                 data_bytes: 0,
                 transfer: None,
+                addrs: Vec::new(),
             });
             clients.len() - 1
         }
     };
     let client = &mut clients[idx];
     client.packets += 1;
+    if !client.addrs.contains(&e.peer) {
+        client.addrs.push(e.peer);
+    }
 
     let text = e.parsed.as_deref().unwrap_or_default();
     if e.protocol == Protocol::Tftp {

@@ -371,9 +371,9 @@ impl Dissector {
         }
         let (client, server) = if self.is_server(dst) {
             (src, dst)
-        } else if self.is_server(src) {
-            (dst, src)
-        } else if flags & (SYN | ACK) == SYN && self.control_clients.contains(&dst.ip()) {
+        } else if self.is_server(src)
+            || (flags & (SYN | ACK) == SYN && self.control_clients.contains(&dst.ip()))
+        {
             (dst, src)
         } else {
             return None;
