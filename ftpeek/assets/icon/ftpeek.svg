@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <g id="rows">
+      <rect x="28" y="44"  width="8" height="6" fill="#16171A"/><rect x="42" y="44"  width="90"  height="6" fill="#16171A"/>
+      <rect x="28" y="58"  width="8" height="6" fill="#16171A"/><rect x="42" y="58"  width="120" height="6" fill="#16171A"/>
+      <rect x="28" y="72"  width="8" height="6" fill="#16171A"/><rect x="42" y="72"  width="70"  height="6" fill="#16171A"/>
+
+      <rect x="24" y="92" width="152" height="16" fill="#003DA5"/>
+      <path transform="translate(77.475 104.901) scale(0.01414 -0.01414)" fill="#FFFFFF" d="M470 700H60V0H180V300H450V404H180V596H470ZM685 0H805V596H1005V700H485V596H685ZM1185 596H1365C1401 596 1425 572 1425 536V434C1425 398 1401 374 1365 374H1185ZM1065 0H1185V270H1375C1476 270 1545 339 1545 440V530C1545 631 1476 700 1375 700H1065ZM2040 214V340C2040 448 1983 507 1835 507C1677 507 1620 448 1620 340V160C1620 52 1677 -7 1835 -7C1993 -7 2040 52 2040 160H1925V148C1925 112 1906 88 1870 88H1795C1759 88 1735 112 1735 148V214ZM1925 303H1735V352C1735 388 1759 412 1795 412H1870C1906 412 1925 388 1925 352ZM2570 214V340C2570 448 2513 507 2365 507C2207 507 2150 448 2150 340V160C2150 52 2207 -7 2365 -7C2523 -7 2570 52 2570 160H2455V148C2455 112 2436 88 2400 88H2325C2289 88 2265 112 2265 148V214ZM2455 303H2265V352C2265 388 2289 412 2325 412H2400C2436 412 2455 388 2455 352ZM2854 210 2992 0H3125L2928 296L3105 500H2979L2805 296H2800V700H2685V0H2800V148Z"/>
+
+      <rect x="28" y="116" width="8" height="6" fill="#16171A"/><rect x="42" y="116" width="100" height="6" fill="#16171A"/>
+      <rect x="28" y="130" width="8" height="6" fill="#E4002B"/><rect x="42" y="130" width="80"  height="6" fill="#E4002B"/>
+      <rect x="28" y="144" width="8" height="6" fill="#16171A"/><rect x="42" y="144" width="126" height="6" fill="#16171A"/>
+      <rect x="28" y="158" width="8" height="6" fill="#16171A"/><rect x="42" y="158" width="60"  height="6" fill="#16171A"/>
+    </g>
+    <clipPath id="lens"><circle cx="100" cy="100" r="52"/></clipPath>
+  </defs>
+
+  <rect x="16" y="16" width="168" height="168" fill="#FFFFFF" stroke="#16171A" stroke-width="8"/>
+  <rect x="16" y="16" width="168" height="18" fill="#16171A"/>
+  <use href="#rows"/>
+
+  <g clip-path="url(#lens)">
+    <circle cx="100" cy="100" r="52" fill="#FFFFFF"/>
+    <use href="#rows" transform="translate(100 100) scale(2) translate(-100 -100)"/>
+  </g>
+
+  <circle cx="100" cy="100" r="57" fill="none" stroke="#16171A" stroke-width="10"/>
+  <line x1="141" y1="141" x2="176" y2="176" stroke="#E4002B" stroke-width="14" stroke-linecap="square"/>
+</svg>

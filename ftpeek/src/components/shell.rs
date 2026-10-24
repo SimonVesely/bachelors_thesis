@@ -48,7 +48,7 @@ pub fn AppShell() -> Element {
                             }
                         }
                         p { class: "info-modal__desc",
-                            "Aplikace pro analýzu komunikace protokolů pro přenos souborů — "
+                            "Application for analyzing the communication of file transfer protocols — "
                             "a semester project analyzing FTP, FTPS, TFTP and SFTP client-server "
                             "communication, built at VUT FEKT."
                         }
@@ -73,10 +73,19 @@ pub fn AppShell() -> Element {
                             span { class: "info-modal__label", "Built with" }
                             div { class: "info-modal__tags",
                                 span { class: "info-modal__tag", "Rust" }
-                                span { class: "info-modal__tag", "Dioxus" }
                                 span { class: "info-modal__tag", "Tokio" }
+                                span { class: "info-modal__tag", "Dioxus" }
                                 span { class: "info-modal__tag", "rustls" }
                                 span { class: "info-modal__tag", "russh" }
+                                span { class: "info-modal__tag", "rcgen" }
+                                span { class: "info-modal__tag", "Serde" }
+                                span { class: "info-modal__tag", "Tracing" }
+                                span { class: "info-modal__tag", "Anyhow/thiserror" }
+                                span { class: "info-modal__tag", "Bytes" }
+                                span { class: "info-modal__tag", "if-addrs" }
+                                span { class: "info-modal__tag", "directories" }
+                                span { class: "info-modal__tag", "redb" }
+                                span { class: "info-modal__tag", "argon2" }
                             }
                         }
                     }
