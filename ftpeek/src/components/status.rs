@@ -62,6 +62,20 @@ pub fn Status(mode: String, protocol: String) -> Element {
         "FTPS (explicit)"
     };
 
+    let iface_label = state
+        .selected_interface
+        .read()
+        .as_ref()
+        .and_then(|ip| {
+            state
+                .interfaces
+                .read()
+                .iter()
+                .find(|i| &i.ip.to_string() == ip)
+                .map(|i| format!("{} \u{00b7} {}", i.name, i.ip))
+        })
+        .unwrap_or_else(|| "all interfaces \u{00b7} 0.0.0.0".to_string());
+
     let start_server = move |_| {
         let bind_ip: IpAddr = state
             .interfaces
@@ -202,180 +216,178 @@ pub fn Status(mode: String, protocol: String) -> Element {
 
     rsx! {
         section { class: "status-view",
-            Link { class: "back-link", to: Route::ModeSelect {}, "\u{2190} start over" }
-            h2 { class: "section-title", "Session status" }
-
             if !is_supported {
+                Link { class: "back-link", to: Route::ModeSelect {}, "\u{2190} main menu" }
                 p { class: "section-subtitle",
                     "Only the FTP, FTPS and TFTP servers are wired up so far - {protocol} for {mode} isn't running yet."
                 }
             } else {
-                div { class: "status-grid",
-                    div { class: "status-grid__cell",
-                        div { class: "status-summary",
-                            div { class: "status-summary__item",
-                                span { class: "status-summary__label", "Mode" }
-                                span { class: "status-summary__value", "{mode}" }
-                            }
-                            div { class: "status-summary__item",
-                                span { class: "status-summary__label", "Protocol" }
-                                span { class: "status-summary__value", "{protocol_label}" }
-                            }
-                            div { class: "status-summary__item",
-                                span { class: "status-summary__label", "Access" }
-                                span { class: "status-summary__value", "{access_label}" }
-                            }
-                            div { class: "status-summary__item",
-                                span { class: "status-summary__label", "State" }
-                                span {
-                                    class: if running() { "status-summary__value status-summary__value--ok" } else { "status-summary__value status-summary__value--pending" },
+                div { class: "control-bar",
+                    div { class: "control-bar__main",
+                    div { class: "control-bar__top",
+                        Link { class: "control-bar__back", to: Route::ModeSelect {}, "\u{2190} Main menu" }
+                        div { class: "control-bar__heading",
+                            span { class: "control-bar__title", "{protocol_label} {mode}" }
+                            div { class: "control-bar__meta",
+                                span { class: "control-bar__chip",
+                                    span { class: "control-bar__chip-label", "Interface" }
+                                    "{iface_label}"
+                                }
+                                span { class: "control-bar__chip",
+                                    span { class: "control-bar__chip-label", "Access" }
+                                    "{access_label}"
+                                }
+                                span { class: if running() { "control-bar__chip control-bar__chip--on" } else { "control-bar__chip" },
+                                    span { class: "control-bar__dot" }
                                     if running() { "listening" } else { "stopped" }
                                 }
                             }
-                            div { class: "status-summary__item status-summary__item--action",
-                                if !running() {
-                                    button { class: "btn btn--primary", onclick: start_server, "Start server" }
-                                } else {
-                                    button { class: "btn btn--danger", onclick: stop_server, "Stop server" }
+                        }
+                        div { class: "control-bar__spacer" }
+                        if !running() {
+                            button { class: "btn btn--primary", onclick: start_server, "Start server" }
+                        } else {
+                            button { class: "btn btn--danger", onclick: stop_server, "Stop server" }
+                        }
+                    }
+                    div { class: "control-bar__settings",
+                        if is_ftps {
+                            label { class: "control-bar__field",
+                                span { class: "control-bar__label", "FTPS mode" }
+                                select {
+                                    class: "status-summary__input",
+                                    disabled: running(),
+                                    value: if ftps_implicit() { "implicit" } else { "explicit" },
+                                    onchange: move |e| {
+                                        let implicit = e.value() == "implicit";
+                                        ftps_implicit.set(implicit);
+                                        if implicit && pi_port() == 21 {
+                                            pi_port.set(990);
+                                        } else if !implicit && pi_port() == 990 {
+                                            pi_port.set(21);
+                                        }
+                                    },
+                                    option { value: "explicit", "Explicit - AUTH TLS" }
+                                    option { value: "implicit", "Implicit - TLS from first byte" }
                                 }
                             }
-                            if is_ftps {
-                                div { class: "status-summary__item status-summary__item--wide",
-                                    span { class: "status-summary__label", "FTPS mode" }
-                                    select {
-                                        class: "status-summary__input",
-                                        disabled: running(),
-                                        value: if ftps_implicit() { "implicit" } else { "explicit" },
-                                        onchange: move |e| {
-                                            let implicit = e.value() == "implicit";
-                                            ftps_implicit.set(implicit);
-                                            if implicit && pi_port() == 21 {
-                                                pi_port.set(990);
-                                            } else if !implicit && pi_port() == 990 {
-                                                pi_port.set(21);
-                                            }
-                                        },
-                                        option { value: "explicit", "Explicit - AUTH TLS (RFC 4217)" }
-                                        option { value: "implicit", "Implicit - legacy, TLS from the first byte" }
-                                    }
+                        }
+                        if is_tftp {
+                            label { class: "control-bar__field",
+                                span { class: "control-bar__label", "Uploads (WRQ)" }
+                                select {
+                                    class: "status-summary__input",
+                                    disabled: running(),
+                                    value: if tftp_allow_write() { "allow" } else { "deny" },
+                                    onchange: move |e| tftp_allow_write.set(e.value() == "allow"),
+                                    option { value: "allow", "Allowed" }
+                                    option { value: "deny", "Disabled (read only)" }
                                 }
                             }
-                            if is_tftp {
-                                div { class: "status-summary__item status-summary__item--wide",
-                                    span { class: "status-summary__label", "Uploads (WRQ)" }
-                                    select {
-                                        class: "status-summary__input",
-                                        disabled: running(),
-                                        value: if tftp_allow_write() { "allow" } else { "deny" },
-                                        onchange: move |e| tftp_allow_write.set(e.value() == "allow"),
-                                        option { value: "allow", "Allowed - clients can upload and overwrite files" }
-                                        option { value: "deny", "Disabled - read only, uploads get ERROR 2" }
-                                    }
+                        }
+                        div { class: "control-bar__field control-bar__field--grow",
+                            span { class: "control-bar__label", "Root directory" }
+                            div { class: "status-summary__field-row",
+                                input {
+                                    class: "status-summary__input",
+                                    r#type: "text",
+                                    value: "{root_dir}",
+                                    disabled: running(),
+                                    oninput: move |e| root_dir.set(e.value()),
+                                }
+                                button {
+                                    class: "browse-btn",
+                                    r#type: "button",
+                                    disabled: running(),
+                                    onclick: move |_| {
+                                        if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                                            root_dir.set(folder.display().to_string());
+                                        }
+                                    },
+                                    "Browse\u{2026}"
                                 }
                             }
-                            div { class: "status-summary__item status-summary__item--wide",
-                                span { class: "status-summary__label", "Root directory" }
-                                div { class: "status-summary__field-row",
-                                    input {
-                                        class: "status-summary__input",
-                                        r#type: "text",
-                                        value: "{root_dir}",
-                                        disabled: running(),
-                                        oninput: move |e| root_dir.set(e.value()),
+                        }
+                        label { class: "control-bar__field control-bar__field--port",
+                            span { class: "control-bar__label", if is_tftp { "Port (UDP)" } else { "PI port" } }
+                            input {
+                                class: "status-summary__input",
+                                r#type: "number",
+                                value: "{pi_port}",
+                                disabled: running(),
+                                oninput: move |e| {
+                                    if let Ok(v) = e.value().parse() {
+                                        pi_port.set(v);
                                     }
-                                    button {
-                                        class: "browse-btn",
-                                        r#type: "button",
-                                        disabled: running(),
-                                        onclick: move |_| {
-                                            if let Some(folder) = rfd::FileDialog::new().pick_folder() {
-                                                root_dir.set(folder.display().to_string());
-                                            }
-                                        },
-                                        "Browse\u{2026}"
-                                    }
-                                }
+                                },
                             }
-                            div { class: "status-summary__item",
-                                span { class: "status-summary__label", if is_tftp { "Port (UDP)" } else { "PI port (control)" } }
+                        }
+                        if !is_tftp {
+                            label { class: "control-bar__field control-bar__field--port",
+                                span { class: "control-bar__label", "DTP port" }
                                 input {
                                     class: "status-summary__input",
                                     r#type: "number",
-                                    value: "{pi_port}",
+                                    value: "{dtp_port}",
                                     disabled: running(),
                                     oninput: move |e| {
                                         if let Ok(v) = e.value().parse() {
-                                            pi_port.set(v);
+                                            dtp_port.set(v);
                                         }
                                     },
                                 }
                             }
-                            if !is_tftp {
-                                div { class: "status-summary__item",
-                                    span { class: "status-summary__label", "DTP port (PASV)" }
-                                    input {
-                                        class: "status-summary__input",
-                                        r#type: "number",
-                                        value: "{dtp_port}",
-                                        disabled: running(),
-                                        oninput: move |e| {
-                                            if let Ok(v) = e.value().parse() {
-                                                dtp_port.set(v);
-                                            }
-                                        },
-                                    }
+                        }
+                        div { class: "control-bar__field",
+                            span { class: "control-bar__label", "Packet capture" }
+                            label { class: "status-summary__check",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: use_pcap(),
+                                    disabled: running(),
+                                    onchange: move |e| use_pcap.set(e.checked()),
                                 }
+                                "pcap (Wireshark view)"
                             }
-                            div { class: "status-summary__item status-summary__item--wide",
-                                span { class: "status-summary__label", "Packet capture" }
-                                label { class: "status-summary__check",
-                                    input {
-                                        r#type: "checkbox",
-                                        checked: use_pcap(),
-                                        disabled: running(),
-                                        onchange: move |e| use_pcap.set(e.checked()),
-                                    }
-                                    "Capture frames with pcap (Wireshark view)"
-                                }
-                                if let Some(note) = capture_note() {
-                                    span { class: if wire() { "status-summary__note status-summary__note--ok" } else { "status-summary__note" }, "{note}" }
-                                }
+                            if let Some(note) = capture_note() {
+                                span { class: if wire() { "status-summary__note status-summary__note--ok" } else { "status-summary__note" }, "{note}" }
                             }
+                        }
+                    }
+                    if is_tftp || is_ftps || error_msg().is_some() {
+                        div { class: "control-bar__notes",
                             if is_tftp {
-                                p { class: "status-hint",
-                                    "TFTP has no login: anyone who reaches this port can download every file in the root directory."
-                                }
+                                span { class: "status-hint", "TFTP has no login: anyone who reaches this port can download every file in the root directory." }
                             }
                             if is_ftps {
-                                p { class: "status-hint",
-                                    "A self-signed certificate is generated on every start - the client will ask you to trust it."
-                                }
+                                span { class: "status-hint", "A self-signed certificate is generated on every start - the client will ask you to trust it." }
                             }
                             if let Some(err) = error_msg() {
-                                p { class: "status-error", "{err}" }
+                                span { class: "status-error", "{err}" }
                             }
                         }
                     }
-
-                    div { class: "status-grid__cell status-grid__cell--row",
-                        div { class: "status-grid__sub",
-                            DirectoryPreview { root_dir, logs }
-                        }
-                        div { class: "status-grid__sub",
-                            ClientList { clients, filter }
-                        }
                     }
+                    div { class: "control-bar__clients",
+                        ClientList { clients, filter }
+                    }
+                }
 
-                    div { class: "status-grid__cell",
+                div { class: "status-grid status-grid--wide",
+                    div { class: "status-grid__cell status-grid__cell--log",
                         PacketLog { logs, packets, wire, selected, clients, filter }
                     }
-
                     div { class: "status-grid__cell status-grid__cell--split",
-                        div { class: "status-grid__sub",
-                            if wire() {
-                                FrameDetail { packets, selected }
-                            } else {
-                                PacketDetail { logs, selected }
+                        div { class: "status-grid__sub status-grid__sub--row",
+                            div { class: "status-grid__sub status-grid__sub--detail",
+                                if wire() {
+                                    FrameDetail { packets, selected }
+                                } else {
+                                    PacketDetail { logs, selected }
+                                }
+                            }
+                            div { class: "status-grid__sub status-grid__sub--dir",
+                                DirectoryPreview { root_dir, logs }
                             }
                         }
                         div { class: "status-grid__sub",
