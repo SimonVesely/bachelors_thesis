@@ -40,6 +40,7 @@
 //! }
 //! ```
 
+pub mod capture;
 mod users;
 pub use users::{UserDb, UserDbError};
 
