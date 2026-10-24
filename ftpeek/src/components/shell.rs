@@ -17,7 +17,7 @@ pub fn AppShell() -> Element {
                 header { class: "app-header",
                     div { class: "app-header__mark" }
                     div { class: "app-header__titles",
-                        span { class: "app-header__eyebrow", "VUT FEKT — semestrální práce" }
+                        span { class: "app-header__eyebrow", "VUT FEKT — Semestral project - Application for analyzing the communication of file transfer protocols" }
                         h1 { class: "app-header__title", "FTPeek" }
                     }
                 }

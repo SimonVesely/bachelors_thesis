@@ -7,7 +7,6 @@ use super::dissect::{ACK, App, Headers, LinkLayer, Packet, TcpOption, Transport,
 use super::tftp::{Tftp, error_name};
 use super::tls;
 
-/// One line of the detail tree. `range` is the bytes it covers in the frame (for highlighting).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Field {
     pub label: String,
@@ -25,7 +24,6 @@ impl Field {
     }
 }
 
-/// One protocol layer of the detail tree (Frame, Ethernet II, IPv4, TCP, ...).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layer {
     pub title: String,
