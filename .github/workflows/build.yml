@@ -53,7 +53,16 @@ jobs:
             libgtk-3-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
-            libxdo-dev
+            libxdo-dev \
+            libpcap-dev
+
+      - name: Install Npcap SDK
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://npcap.com/dist/npcap-sdk-1.15.zip" -OutFile npcap-sdk.zip
+          Expand-Archive npcap-sdk.zip -DestinationPath npcap-sdk
+          "LIBPCAP_LIBDIR=$PWD\npcap-sdk\Lib\x64" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
