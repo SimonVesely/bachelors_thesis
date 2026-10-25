@@ -5,7 +5,9 @@ fn main() {
         println!("cargo:rustc-link-arg-bins=/DELAYLOAD:wpcap.dll");
         println!("cargo:rustc-link-arg-bins=delayimp.lib");
     }
-    if windows {
+    println!("cargo:rerun-if-env-changed=DIOXUS_PRODUCT_NAME");
+    let dx_bundle = std::env::var_os("DIOXUS_PRODUCT_NAME").is_some();
+    if windows && !dx_bundle {
         winresource::WindowsResource::new()
             .set_icon("assets/icon/ftpeek.ico")
             .compile()
