@@ -5,12 +5,21 @@
 [![Rust](https://img.shields.io/badge/Rust-2024-green?logo=rust)](https://www.rust-lang.org/)
 [![dependency status](https://deps.rs/repo/github/SimonVesely/bachelors_thesis/status.svg)](https://deps.rs/repo/github/SimonVesely/bachelors_thesis)
 
+<p align="center">
+  <img src="ftpeek/assets/icon/ftpeek.svg" alt="FTPeek logo" width="256">
+</p>
+
 # Protocol Analyzer — FTP / SFTP / FTPS / TFTP
 
 **Application for analyzing the communication of file transfer protocols**
 
 A server-side application for demonstrating and analyzing file-transfer
 protocol communication. Built entirely in Rust.
+
+## Graphical User Interface made with Dioxus
+<p align="center">
+  <img src="ftpeek/assets/preview/preview-ftps-encrypted.png" alt="FTPeek logo" >
+</p>
 
 ## Scope
 
