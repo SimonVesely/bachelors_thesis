@@ -5,3 +5,9 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
+proto-core = { workspace = true }
+tokio      = { workspace = true }
+russh      = { workspace = true }
+russh-sftp = { workspace = true }
+bytes      = { workspace = true }
+rand       = "0.10"
