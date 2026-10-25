@@ -3680,6 +3680,7 @@ dependencies = [
  "if-addrs",
  "pcap",
  "redb",
+ "ring",
  "tokio",
  "tracing",
 ]

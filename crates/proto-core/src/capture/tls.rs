@@ -91,7 +91,7 @@ fn version_name(v: u16) -> String {
     format!("{name} (0x{v:04x})")
 }
 
-fn content_name(ct: u8) -> &'static str {
+pub(super) fn content_name(ct: u8) -> &'static str {
     match ct {
         20 => "Change Cipher Spec",
         21 => "Alert",
@@ -102,7 +102,7 @@ fn content_name(ct: u8) -> &'static str {
     }
 }
 
-fn handshake_name(kind: u8) -> &'static str {
+pub(super) fn handshake_name(kind: u8) -> &'static str {
     match kind {
         0 => "Hello Request",
         1 => "Client Hello",
@@ -149,16 +149,16 @@ fn record_names(record: &Record) -> Vec<String> {
     }
 }
 
-struct Hello<'a> {
+pub(super) struct Hello<'a> {
     version: u16,
-    random: &'a [u8],
+    pub(super) random: &'a [u8],
     session_id: &'a [u8],
-    ciphers: Vec<u16>,
+    pub(super) ciphers: Vec<u16>,
     extensions: Vec<(u16, &'a [u8])>,
 }
 
 impl<'a> Hello<'a> {
-    fn parse(b: &'a [u8], client: bool) -> Option<Hello<'a>> {
+    pub(super) fn parse(b: &'a [u8], client: bool) -> Option<Hello<'a>> {
         let mut c = Cursor { b, pos: 0 };
         let version = c.u16()?;
         let random = c.take(32)?;
@@ -198,7 +198,7 @@ impl<'a> Hello<'a> {
             .map(|(_, v)| *v)
     }
 
-    fn selected_version(&self) -> u16 {
+    pub(super) fn selected_version(&self) -> u16 {
         match self.extension(43) {
             Some(v) if v.len() == 2 => be16(v, 0),
             _ => self.version,

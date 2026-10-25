@@ -43,6 +43,7 @@ pub fn Status(mode: String, protocol: String) -> Element {
     let mut wire = use_signal(|| false);
     let mut capture = use_signal(|| None::<Capture>);
     let mut capture_note = use_signal(|| None::<String>);
+    let decrypt = use_signal(|| false);
 
     let access_label = if is_tftp {
         "none (TFTP has no login)".to_string()
@@ -375,13 +376,13 @@ pub fn Status(mode: String, protocol: String) -> Element {
 
                 div { class: "status-grid status-grid--wide",
                     div { class: "status-grid__cell status-grid__cell--log",
-                        PacketLog { logs, packets, wire, selected, clients, filter }
+                        PacketLog { logs, packets, wire, selected, clients, filter, decrypt, can_decrypt: is_ftps && wire() }
                     }
                     div { class: "status-grid__cell status-grid__cell--split",
                         div { class: "status-grid__sub status-grid__sub--row",
                             div { class: "status-grid__sub status-grid__sub--detail",
                                 if wire() {
-                                    FrameDetail { packets, selected }
+                                    FrameDetail { packets, selected, decrypt }
                                 } else {
                                     PacketDetail { logs, selected }
                                 }

@@ -1028,3 +1028,8 @@ body {
 .status-grid__sub--detail { flex: 1.7; min-width: 0; }
 .status-grid__sub--dir { flex: 1; min-width: 0; }
 .control-bar__field .status-summary__input { height: 34px; }
+.btn--on { background: var(--color-blue); color: #ffffff; border-color: var(--color-blue); }
+.btn--on:hover { background: var(--color-blue-hover); }
+.pkt--dec { background: #dff3e4; color: #0f3d1c; }
+.pkt--dec td:first-child { box-shadow: inset 4px 0 0 #1e7a34; }
+.detail-hex--plain .detail-hex__label { color: #1e7a34; }

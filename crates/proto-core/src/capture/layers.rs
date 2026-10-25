@@ -3,6 +3,7 @@ use std::time::UNIX_EPOCH;
 
 use crate::Direction;
 
+use super::decrypt::{alert_name, handshake_messages};
 use super::dissect::{ACK, App, Headers, LinkLayer, Packet, TcpOption, Transport, flag_names};
 use super::tftp::{Tftp, error_name};
 use super::tls;
@@ -512,4 +513,76 @@ fn tftp_layer(payload: &[u8], base: usize) -> Layer {
         range: b..b + payload.len(),
         fields,
     }
+}
+
+pub fn decrypted_layers(p: &Packet) -> Vec<Layer> {
+    let range = p.headers().map_or(0..0, |h| h.payload);
+    p.decrypted
+        .iter()
+        .map(|plain| {
+            let ct = plain.content_type;
+            let mut fields = vec![
+                Field::new(
+                    "Decrypted with",
+                    format!("{} (record #{})", plain.secret, plain.seq),
+                    None,
+                ),
+                Field::new(
+                    "Inner content type",
+                    format!("{} ({ct})", tls::content_name(ct)),
+                    None,
+                ),
+                Field::new(
+                    "Plaintext length",
+                    format!("{} bytes", plain.data.len()),
+                    None,
+                ),
+            ];
+            let summary = match ct {
+                22 => {
+                    let messages = handshake_messages(&plain.data);
+                    for (kind, body) in &messages {
+                        fields.push(Field::new(
+                            "Handshake message",
+                            format!("{} ({} bytes)", tls::handshake_name(*kind), body.len()),
+                            None,
+                        ));
+                    }
+                    let names: Vec<&str> = messages
+                        .iter()
+                        .map(|(k, _)| tls::handshake_name(*k))
+                        .collect();
+                    names.join(", ")
+                }
+                21 => {
+                    let level = match plain.data.first() {
+                        Some(2) => "fatal",
+                        _ => "warning",
+                    };
+                    fields.push(Field::new("Alert level", level.into(), None));
+                    fields.push(Field::new(
+                        "Alert description",
+                        alert_name(&plain.data),
+                        None,
+                    ));
+                    format!("Alert: {}", alert_name(&plain.data))
+                }
+                23 if p.control => {
+                    let ftp = ftp_layer(&plain.data, 0, p.direction);
+                    fields.extend(ftp.fields.into_iter().map(|f| Field { range: None, ..f }));
+                    "File Transfer Protocol (FTP)".into()
+                }
+                23 => {
+                    fields.push(Field::new("Data", preview(&plain.data), None));
+                    format!("FTP Data ({} bytes)", plain.data.len())
+                }
+                _ => tls::content_name(ct).into(),
+            };
+            Layer {
+                title: format!("Decrypted TLS Record: {summary}"),
+                range: range.clone(),
+                fields,
+            }
+        })
+        .collect()
 }

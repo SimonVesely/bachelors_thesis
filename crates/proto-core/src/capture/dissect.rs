@@ -6,6 +6,7 @@ use std::time::SystemTime;
 
 use crate::{Direction, Protocol};
 
+use super::decrypt::{self, Plain, Session};
 use super::tls::{self, TlsHalf};
 use super::{CaptureConfig, RawFrame, tftp};
 
@@ -43,6 +44,10 @@ pub struct Packet {
     pub window: u32,
     pub analysis: Option<&'static str>,
     pub tls: TlsHalf,
+    pub control: bool,
+    pub decrypted: Vec<Plain>,
+    pub plain_protocol: Option<String>,
+    pub plain_info: Option<String>,
 }
 
 impl Packet {
@@ -286,6 +291,7 @@ struct Half {
     next_seq: Option<u32>,
     win_scale: Option<u8>,
     tls: TlsHalf,
+    records: Vec<u8>,
 }
 
 struct Stream {
@@ -295,6 +301,7 @@ struct Stream {
     tls_version: Option<u16>,
     seen_payload: bool,
     halves: [Half; 2],
+    crypt: Session,
 }
 
 pub struct Dissector {
@@ -341,6 +348,10 @@ impl Dissector {
             window: 0,
             analysis: None,
             tls: TlsHalf::default(),
+            control: false,
+            decrypted: Vec::new(),
+            plain_protocol: None,
+            plain_info: None,
         };
         let kept = match &h.transport {
             Transport::Tcp(tcp) => self.tcp(&mut packet, tcp, payload),
@@ -391,6 +402,7 @@ impl Dissector {
                 tls_version: None,
                 seen_payload: false,
                 halves: Default::default(),
+                crypt: Session::default(),
             },
         );
         self.next_stream += 1;
@@ -417,6 +429,7 @@ impl Dissector {
             Direction::ServerToClient
         };
         p.stream = Some(stream.index);
+        p.control = stream.control;
         p.tcp_flags = tcp.flags;
 
         let syn = tcp.flags & SYN != 0;
@@ -442,6 +455,7 @@ impl Dissector {
             } else if diff > 0 {
                 p.analysis = Some("TCP Previous segment not captured");
                 half.tls = TlsHalf::default();
+                half.records.clear();
             }
         }
         let end = tcp.seq.wrapping_add(seg_len);
@@ -478,6 +492,18 @@ impl Dissector {
                 p.app = App::Tls;
                 p.info = tls::scan(payload, half, &mut stream.tls_version);
                 p.protocol = tls::protocol_name(stream.tls_version).into();
+                let records = decrypt::reassemble(&mut stream.halves[me].records, payload);
+                p.decrypted = records
+                    .iter()
+                    .filter_map(|r| stream.crypt.process(me, r))
+                    .collect();
+                if !p.decrypted.is_empty() {
+                    let version = stream.tls_version;
+                    let (protocol, info) =
+                        plain_summary(&p.decrypted, stream.control, p.direction, version);
+                    p.plain_protocol = Some(protocol);
+                    p.plain_info = Some(info);
+                }
             } else if stream.control {
                 p.app = App::Ftp;
                 p.protocol = "FTP".into();
@@ -563,4 +589,38 @@ fn ftp_info(payload: &[u8], direction: Direction) -> String {
         0 => format!("{kind}: {first}"),
         n => format!("{kind}: {first} (+{n} lines)"),
     }
+}
+
+fn plain_summary(
+    plains: &[Plain],
+    control: bool,
+    direction: Direction,
+    version: Option<u16>,
+) -> (String, String) {
+    let mut names = Vec::new();
+    let mut protocol = tls::protocol_name(version);
+    let mut data_bytes = None;
+    for plain in plains {
+        match plain.content_type {
+            22 => names.extend(
+                decrypt::handshake_messages(&plain.data)
+                    .iter()
+                    .map(|(kind, _)| tls::handshake_name(*kind).to_string()),
+            ),
+            21 => names.push(format!("Alert: {}", decrypt::alert_name(&plain.data))),
+            23 if control => {
+                names.push(ftp_info(&plain.data, direction));
+                protocol = "FTP";
+            }
+            23 => {
+                *data_bytes.get_or_insert(0) += plain.data.len();
+                protocol = "FTP-DATA";
+            }
+            _ => names.push("Unknown record".into()),
+        }
+    }
+    if let Some(bytes) = data_bytes {
+        names.push(format!("FTP Data: {bytes} bytes"));
+    }
+    (protocol.into(), names.join(", "))
 }

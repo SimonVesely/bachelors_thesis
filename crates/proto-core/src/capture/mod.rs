@@ -4,18 +4,22 @@ use std::time::SystemTime;
 
 use crate::Protocol;
 
+mod decrypt;
 mod dissect;
+mod keys;
 mod layers;
 #[cfg(feature = "capture")]
 mod live;
 mod tftp;
 mod tls;
 
+pub use decrypt::Plain;
 pub use dissect::{
     ACK, App, Dissector, FIN, Headers, Ipv4, LinkLayer, Packet, SYN, Tcp, TcpOption, Transport,
     Udp, flag_names, parse_headers,
 };
-pub use layers::{Field, Layer, layers};
+pub use keys::{keylog, record_secret};
+pub use layers::{Field, Layer, decrypted_layers, layers};
 #[cfg(feature = "capture")]
 pub use live::{Capture, start};
 pub use tls::TlsHalf;

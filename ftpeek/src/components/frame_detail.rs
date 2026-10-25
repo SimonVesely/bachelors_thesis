@@ -2,12 +2,16 @@ use std::collections::HashSet;
 use std::ops::Range;
 
 use dioxus::prelude::*;
-use proto_core::capture::{Packet, layers};
+use proto_core::capture::{Packet, decrypted_layers, layers};
 
 const HEX_LIMIT: usize = 4096;
 
 #[component]
-pub fn FrameDetail(packets: Signal<Vec<Packet>>, selected: Signal<Option<usize>>) -> Element {
+pub fn FrameDetail(
+    packets: Signal<Vec<Packet>>,
+    selected: Signal<Option<usize>>,
+    decrypt: Signal<bool>,
+) -> Element {
     let idx = selected();
     let packet = idx.and_then(|i| packets.read().get(i).cloned());
     let mut collapsed = use_signal(HashSet::<String>::new);
@@ -23,7 +27,20 @@ pub fn FrameDetail(packets: Signal<Vec<Packet>>, selected: Signal<Option<usize>>
             }
         };
     };
-    let tree = layers(&p, i + 1);
+    let mut tree = layers(&p, i + 1);
+    let plain: Vec<u8> = match decrypt() {
+        true => p
+            .decrypted
+            .iter()
+            .flat_map(|d| d.data.iter().copied())
+            .collect(),
+        false => Vec::new(),
+    };
+    if decrypt() {
+        tree.extend(decrypted_layers(&p));
+    }
+    let plain_rows = hex_rows(&plain, None);
+    let plain_cut = plain.len().saturating_sub(HEX_LIMIT);
     let marked = highlight().filter(|(at, _)| *at == i).map(|(_, r)| r);
     let rows = hex_rows(&p.data, marked.clone());
     let cut = p.data.len().saturating_sub(HEX_LIMIT);
@@ -89,6 +106,19 @@ pub fn FrameDetail(packets: Signal<Vec<Packet>>, selected: Signal<Option<usize>>
                             }
                             if cut > 0 {
                                 div { "\u{2026} {cut} more bytes not shown" }
+                            }
+                        }
+                    }
+                    if !plain.is_empty() {
+                        div { class: "detail-hex detail-hex--plain",
+                            div { class: "detail-hex__label", "Decrypted TLS ({plain.len()} B)" }
+                            pre { class: "detail-hex__pre",
+                                for (n, row) in plain_rows.into_iter().enumerate() {
+                                    div { key: "{n}", "{row.offset}  {row.hex[2]} {row.ascii[2]}" }
+                                }
+                                if plain_cut > 0 {
+                                    div { "\u{2026} {plain_cut} more bytes not shown" }
+                                }
                             }
                         }
                     }

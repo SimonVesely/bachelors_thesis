@@ -96,25 +96,33 @@ fn event_row(no: usize, e: &MessageEvent, t0: SystemTime, current: Option<usize>
     }
 }
 
-fn packet_row(no: usize, p: &Packet, t0: SystemTime, current: Option<usize>) -> Row {
+fn packet_row(no: usize, p: &Packet, t0: SystemTime, current: Option<usize>, decrypt: bool) -> Row {
     let mut class = match (p.app, p.direction) {
         (App::Tcp, _) => "pkt--tcp".to_string(),
         (App::Tls, _) => "pkt--tls".to_string(),
         (_, Direction::ClientToServer) => "pkt--in".to_string(),
         (_, Direction::ServerToClient) => "pkt--out".to_string(),
     };
+    let plain = match (decrypt, &p.plain_protocol, &p.plain_info) {
+        (true, Some(protocol), Some(info)) => Some((protocol.clone(), info.clone())),
+        _ => None,
+    };
+    if plain.is_some() {
+        class.push_str(" pkt--dec");
+    }
     if current == Some(no - 1) {
         class.push_str(" pkt--selected");
     }
+    let (proto, info) = plain.unwrap_or_else(|| (p.protocol.clone(), p.info.clone()));
     Row {
         class,
         no,
         time: elapsed(p.timestamp, t0),
         src: p.src.to_string(),
         dst: p.dst.to_string(),
-        proto: p.protocol.clone(),
+        proto,
         len: p.wire_len as usize,
-        info: p.info.clone(),
+        info,
         end_of_group: false,
     }
 }
@@ -132,7 +140,10 @@ pub fn PacketLog(
     selected: Signal<Option<usize>>,
     clients: Signal<Vec<ClientInfo>>,
     filter: Signal<Option<u64>>,
+    decrypt: Signal<bool>,
+    can_decrypt: bool,
 ) -> Element {
+    let mut decrypt = decrypt;
     let mut logs = logs;
     let mut packets = packets;
     let mut selected = selected;
@@ -165,7 +176,7 @@ pub fn PacketLog(
             &shown,
             scroll_top(),
             view_height(),
-            |i| packet_row(i + 1, &all[i], t0, current),
+            |i| packet_row(i + 1, &all[i], t0, current, decrypt()),
             |i| packet_starts_group(&all[i]),
         );
         (rows, shown.len(), all.len())
@@ -229,6 +240,14 @@ pub fn PacketLog(
                         onchange: move |e| autoscroll.set(e.checked()),
                     }
                     "Auto-scroll"
+                }
+                if can_decrypt {
+                    button {
+                        class: if decrypt() { "btn btn--ghost btn--on" } else { "btn btn--ghost" },
+                        title: "Show TLS records decrypted with the session keys the server logged",
+                        onclick: move |_| decrypt.toggle(),
+                        if decrypt() { "Decrypted" } else { "Decrypt" }
+                    }
                 }
                 button {
                     class: "btn btn--ghost",

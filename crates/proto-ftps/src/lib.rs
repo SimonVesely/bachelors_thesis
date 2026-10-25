@@ -99,6 +99,7 @@ fn build_acceptors(bind_addr: IpAddr) -> io::Result<Acceptors> {
         config.ticketer = ticketer.clone();
         config.session_storage = session_cache.clone();
         config.send_tls13_tickets = tickets;
+        config.key_log = Arc::new(KeyLogger);
         Ok(config)
     };
 
@@ -106,4 +107,13 @@ fn build_acceptors(bind_addr: IpAddr) -> io::Result<Acceptors> {
         control: TlsAcceptor::from(Arc::new(config(1)?)),
         data: TlsAcceptor::from(Arc::new(config(0)?)),
     })
+}
+
+#[derive(Debug)]
+struct KeyLogger;
+
+impl rustls::KeyLog for KeyLogger {
+    fn log(&self, label: &str, client_random: &[u8], secret: &[u8]) {
+        proto_core::capture::record_secret(label, client_random, secret);
+    }
 }
