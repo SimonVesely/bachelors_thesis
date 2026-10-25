@@ -5,4 +5,10 @@ fn main() {
         println!("cargo:rustc-link-arg-bins=/DELAYLOAD:wpcap.dll");
         println!("cargo:rustc-link-arg-bins=delayimp.lib");
     }
+    if windows {
+        winresource::WindowsResource::new()
+            .set_icon("assets/icon/ftpeek.ico")
+            .compile()
+            .expect("failed to embed the icon into FTPeek.exe");
+    }
 }
