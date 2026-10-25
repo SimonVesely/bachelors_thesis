@@ -7,7 +7,7 @@
 
 # Protocol Analyzer — FTP / SFTP / FTPS / TFTP
 
-**Aplikace pro analýzu komunikace protokolů pro přenos souborů**
+**Application for analyzing the communication of file transfer protocols**
 
 A server-side application for demonstrating and analyzing file-transfer
 protocol communication. Built entirely in Rust.
@@ -18,7 +18,7 @@ This repository is developed in two stages:
 
 - **Semester project (current)** — **server only**, for all four protocols.
   Each server is standalone and interoperates with existing clients
-  (FileZilla, `curl`, `ftp`, `sftp`, `tftp`, etc.) —
+  (FileZilla, curl, lftp, ...) —
   standards-compliant server whose communication can be logged and
   inspected in real time.
 - **Bachelor's thesis** — extends this into a full client + server
@@ -39,16 +39,16 @@ protocols.
 
 | Protocol | Transport      | Implementation                    | Verified against       |
 |----------|-----------------|-------------------------------------|--------------------------|
-| FTP      | TCP, plaintext  | raw, hand-written                   | FileZilla, `curl`, `ftp` |
-| FTPS     | TCP + TLS       | FTP state machine + `rustls`        | FileZilla                |
-| TFTP     | UDP             | raw, hand-written                   | `tftp` client, `curl`    |
-| SFTP     | SSH2 subsystem  | built on `russh`                    | FileZilla, `sftp`        |
+| FTP      | TCP, plaintext  | raw, hand-written                   | FileZilla, curl, lftp    |
+| FTPS     | TCP + TLS       | FTP extension with `rustls` wrapper | FileZilla, lftp          |
+| TFTP     | UDP             | raw, hand-written                   | `curl`                   |
+| SFTP     | SSH2 subsystem  | built on `russh`                    | FileZilla                |
 
 ## Project layout
 
 ```
 crates/
-  proto-core/     shared message-log types + user database
+  proto-core/     shared message-log types + user database + capture of traffic
   proto-ftp/      FTP server
   proto-ftps/     FTP server over TLS
   proto-tftp/     TFTP server
@@ -58,19 +58,23 @@ ftpeek/           Dioxus desktop application
 
 ## Documentation
 
-You can build official Rust documentation using:
+You can build official Rust documentation using on your own machine:
 ```
 cargo doc --workspace --no-deps --document-private-items --open
 ```
-For future releases, documentation will include GitHub Pages support
+For official code documentation view: **[Github Pages Documentation for FTPeek](https://simonvesely.github.io/bachelors_thesis/FTPeek/index.html)**
 
-## Running manually on your own machine
+## Building manually on your own machine
 
 ```
 cargo build --workspace
 cd ftpeek/
 dx serve
 ```
+
+## Running pre-build application
+
+Refer to **[Release page](https://github.com/SimonVesely/bachelors_thesis/releases)**, download newest release for your Operating System
 
 ## Project dependencies
 
@@ -80,11 +84,17 @@ FTPeek is built in Rust and powered by the following open-source dependencies:
 * **[Rust](https://www.rust-lang.org/)** (Edition 2024) — Core programming language (`MIT` / `Apache-2.0`)
 * **[Tokio](https://tokio.rs/)** — Asynchronous runtime for Rust (`MIT`)
 
+### Graphical User Interface
+* **[Dioxus](https://dioxuslabs.com/)** — Fullstack app framework for web, desktop, and mobile made in Rust (`MIT` / `Apache-2.0`)
+
 ### Security & Protocol Libraries
 * **[rustls](https://github.com/rustls/rustls)** & **[tokio-rustls](https://github.com/rustls/tokio-rustls)** — Modern TLS library and Tokio integration (`Apache-2.0` / `MIT` / `ISC`)
 * **[russh](https://github.com/warp-tech/russh)** — Pure Rust SSH implementation (`Apache-2.0` / `MIT`)
 * **[russh-sftp](https://github.com/warp-tech/russh)** — SFTP protocol support built on top of `russh` (`Apache-2.0` / `MIT`)
 * **[rcgen](https://github.com/est31/rcgen)** — X.509 certificate generation library (`MIT` / `Apache-2.0`)
+
+### Network Capture
+* **[pcap](https://github.com/rust-pcap/pcap)** — Crate for accessing the packet sniffing capabilities of libpcap (or Npcap on Windows) (`Apache-2.0` / `MIT`)
 
 ### Utilities & Infrastructure
 * **[Serde](https://serde.rs/)** — Serialization and deserialization framework (`MIT` / `Apache-2.0`)
