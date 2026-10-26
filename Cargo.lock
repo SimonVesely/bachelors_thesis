@@ -2001,6 +2001,7 @@ dependencies = [
  "proto-core",
  "proto-ftp",
  "proto-ftps",
+ "proto-sftp",
  "proto-tftp",
  "rfd",
  "tokio",

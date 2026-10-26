@@ -23,6 +23,13 @@ struct Row {
 }
 
 fn event_proto(e: &MessageEvent) -> String {
+    if e.protocol == Protocol::Sftp && !matches!(e.kind, EventKind::TcpOpen | EventKind::TcpClose) {
+        let ssh = e
+            .parsed
+            .as_deref()
+            .is_some_and(|t| t.starts_with("SSH_MSG"));
+        return if ssh { "SSH" } else { "SFTP" }.to_string();
+    }
     let base = match (e.kind, e.protocol) {
         (EventKind::TcpOpen | EventKind::TcpClose, _) => return "TCP".to_string(),
         (EventKind::Tls, _) => return "TLS".to_string(),
@@ -63,7 +70,7 @@ fn event_starts_group(e: &MessageEvent) -> bool {
 fn packet_starts_group(p: &Packet) -> bool {
     p.tcp_flags & (SYN | ACK) == SYN
         || (p.direction == Direction::ClientToServer
-            && matches!(p.app, App::Ftp | App::Tls | App::Tftp))
+            && matches!(p.app, App::Ftp | App::Tls | App::Tftp | App::Ssh))
 }
 
 fn event_row(no: usize, e: &MessageEvent, t0: SystemTime, current: Option<usize>) -> Row {

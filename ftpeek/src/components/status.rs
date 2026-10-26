@@ -9,6 +9,7 @@ use proto_core::capture::{Capture, CaptureConfig, Dissector, Packet};
 use proto_core::{MessageEvent, Protocol, event_channel};
 use proto_ftp::FtpServerConfig;
 use proto_ftps::{FtpsMode, FtpsServerConfig};
+use proto_sftp::SftpServerConfig;
 use proto_tftp::TftpServerConfig;
 
 use super::{
@@ -23,8 +24,13 @@ pub fn Status(mode: String, protocol: String) -> Element {
 
     let is_ftps = protocol == "ftps";
     let is_tftp = protocol == "tftp";
-    let is_supported = mode == "server" && (protocol == "ftp" || is_ftps || is_tftp);
-    let default_port: u16 = if is_tftp { 69 } else { 21 };
+    let is_sftp = protocol == "sftp";
+    let is_supported = mode == "server" && (protocol == "ftp" || is_ftps || is_tftp || is_sftp);
+    let default_port: u16 = match (is_tftp, is_sftp) {
+        (true, _) => 69,
+        (_, true) => 22,
+        _ => 21,
+    };
 
     let mut root_dir = use_signal(|| "shared".to_string());
     let mut pi_port = use_signal(move || default_port);
@@ -55,6 +61,8 @@ pub fn Status(mode: String, protocol: String) -> Element {
 
     let protocol_label = if is_tftp {
         "TFTP"
+    } else if is_sftp {
+        "SFTP"
     } else if !is_ftps {
         "FTP"
     } else if ftps_implicit() {
@@ -114,6 +122,12 @@ pub fn Status(mode: String, protocol: String) -> Element {
             root_dir: root.clone(),
             allow_write: tftp_allow_write(),
         };
+        let sftp_cfg = SftpServerConfig {
+            bind_addr: bind_ip,
+            port: pi_port(),
+            root_dir: root.clone(),
+            users: users.clone(),
+        };
         let cfg = FtpServerConfig {
             bind_addr: bind_ip,
             control_port: pi_port(),
@@ -130,12 +144,13 @@ pub fn Status(mode: String, protocol: String) -> Element {
 
         let capture_cfg = CaptureConfig {
             server_ip: bind_ip,
-            protocol: match (is_tftp, is_ftps) {
-                (true, _) => Protocol::Tftp,
-                (_, true) => Protocol::Ftps,
+            protocol: match (is_tftp, is_ftps, is_sftp) {
+                (true, _, _) => Protocol::Tftp,
+                (_, true, _) => Protocol::Ftps,
+                (_, _, true) => Protocol::Sftp,
                 _ => Protocol::Ftp,
             },
-            ports: if is_tftp {
+            ports: if is_tftp || is_sftp {
                 vec![pi_port()]
             } else {
                 vec![pi_port(), dtp_port()]
@@ -176,6 +191,8 @@ pub fn Status(mode: String, protocol: String) -> Element {
         spawn(async move {
             let result = if is_tftp {
                 proto_tftp::serve(tftp_cfg, tx, shutdown_recv).await
+            } else if is_sftp {
+                proto_sftp::serve(sftp_cfg, tx, shutdown_recv).await
             } else if is_ftps {
                 proto_ftps::serve(
                     FtpsServerConfig {
@@ -220,7 +237,7 @@ pub fn Status(mode: String, protocol: String) -> Element {
             if !is_supported {
                 Link { class: "back-link", to: Route::ModeSelect {}, "\u{2190} main menu" }
                 p { class: "section-subtitle",
-                    "Only the FTP, FTPS and TFTP servers are wired up so far - {protocol} for {mode} isn't running yet."
+                    "Only the FTP, FTPS, TFTP and SFTP servers are wired up so far - {protocol} for {mode} isn't running yet."
                 }
             } else {
                 div { class: "control-bar",
@@ -310,7 +327,7 @@ pub fn Status(mode: String, protocol: String) -> Element {
                             }
                         }
                         label { class: "control-bar__field control-bar__field--port",
-                            span { class: "control-bar__label", if is_tftp { "Port (UDP)" } else { "PI port" } }
+                            span { class: "control-bar__label", if is_tftp { "Port (UDP)" } else if is_sftp { "Port (TCP)" } else { "PI port" } }
                             input {
                                 class: "status-summary__input",
                                 r#type: "number",
@@ -323,7 +340,7 @@ pub fn Status(mode: String, protocol: String) -> Element {
                                 },
                             }
                         }
-                        if !is_tftp {
+                        if !is_tftp && !is_sftp {
                             label { class: "control-bar__field control-bar__field--port",
                                 span { class: "control-bar__label", "DTP port" }
                                 input {
@@ -355,10 +372,13 @@ pub fn Status(mode: String, protocol: String) -> Element {
                             }
                         }
                     }
-                    if is_tftp || is_ftps || error_msg().is_some() {
+                    if is_tftp || is_ftps || is_sftp || error_msg().is_some() {
                         div { class: "control-bar__notes",
                             if is_tftp {
                                 span { class: "status-hint", "TFTP has no login: anyone who reaches this port can download every file in the root directory." }
+                            }
+                            if is_sftp {
+                                span { class: "status-hint", "A new SSH host key is generated on every start - the client will warn that the key changed. If port 22 is taken by the system SSH server, use 2222." }
                             }
                             if is_ftps {
                                 span { class: "status-hint", "A self-signed certificate is generated on every start - the client will ask you to trust it." }

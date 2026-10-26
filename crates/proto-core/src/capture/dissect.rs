@@ -7,6 +7,7 @@ use std::time::SystemTime;
 use crate::{Direction, Protocol};
 
 use super::decrypt::{self, Plain, Session};
+use super::ssh::{self, SshHalf};
 use super::tls::{self, TlsHalf};
 use super::{CaptureConfig, RawFrame, tftp};
 
@@ -22,6 +23,7 @@ pub enum App {
     FtpData,
     Tls,
     Tftp,
+    Ssh,
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +46,7 @@ pub struct Packet {
     pub window: u32,
     pub analysis: Option<&'static str>,
     pub tls: TlsHalf,
+    pub ssh: SshHalf,
     pub control: bool,
     pub decrypted: Vec<Plain>,
     pub plain_protocol: Option<String>,
@@ -291,6 +294,7 @@ struct Half {
     next_seq: Option<u32>,
     win_scale: Option<u8>,
     tls: TlsHalf,
+    ssh: SshHalf,
     records: Vec<u8>,
 }
 
@@ -348,6 +352,7 @@ impl Dissector {
             window: 0,
             analysis: None,
             tls: TlsHalf::default(),
+            ssh: SshHalf::default(),
             control: false,
             decrypted: Vec::new(),
             plain_protocol: None,
@@ -455,6 +460,7 @@ impl Dissector {
             } else if diff > 0 {
                 p.analysis = Some("TCP Previous segment not captured");
                 half.tls = TlsHalf::default();
+                half.ssh.left = 0;
                 half.records.clear();
             }
         }
@@ -480,6 +486,12 @@ impl Dissector {
             p.app = App::Tcp;
             p.protocol = "TCP".into();
             p.info = tcp_info(p, tcp, payload.len());
+        } else if self.cfg.protocol == Protocol::Sftp {
+            let half = &mut stream.halves[me].ssh;
+            p.ssh = *half;
+            p.app = App::Ssh;
+            p.protocol = "SSHv2".into();
+            p.info = ssh::scan(payload, half, p.direction);
         } else {
             let hello = payload.len() > 1 && payload[0] == 0x16 && payload[1] == 3;
             if hello && (stream.control || !stream.seen_payload) {

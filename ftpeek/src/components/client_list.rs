@@ -60,6 +60,10 @@ pub fn track_client(clients: &mut Vec<ClientInfo>, e: &MessageEvent) {
         track_tftp(client, e, text);
         return;
     }
+    if e.protocol == Protocol::Sftp {
+        track_sftp(client, e, text);
+        return;
+    }
     match (e.kind, e.direction) {
         (EventKind::Message, Direction::ClientToServer) => {
             if let Some(name) = strip_verb(text, "USER") {
@@ -97,6 +101,28 @@ fn track_tftp(client: &mut ClientInfo, e: &MessageEvent, text: &str) {
     }
     if text.contains("(last)") || text.starts_with("Error,") {
         client.connected = false;
+    }
+}
+
+fn track_sftp(client: &mut ClientInfo, e: &MessageEvent, text: &str) {
+    if let Some(rest) = text.strip_prefix("SSH_MSG_USERAUTH_REQUEST user=") {
+        client.user = rest.split(", method=").next().map(str::to_string);
+        client.logged_in = false;
+    } else if text == "SSH_MSG_USERAUTH_SUCCESS" {
+        client.logged_in = true;
+    } else if text.starts_with("SSH_MSG_USERAUTH_FAILURE") {
+        client.logged_in = false;
+    }
+    match e.kind {
+        EventKind::Data => {
+            let bytes = text
+                .rsplit_once('(')
+                .and_then(|(_, n)| n.strip_suffix(" bytes)"))
+                .and_then(|n| n.parse::<u64>().ok());
+            client.data_bytes += bytes.unwrap_or(e.length as u64);
+        }
+        EventKind::TcpClose => client.connected = false,
+        _ => {}
     }
 }
 

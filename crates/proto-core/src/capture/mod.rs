@@ -10,6 +10,7 @@ mod keys;
 mod layers;
 #[cfg(feature = "capture")]
 mod live;
+mod ssh;
 mod tftp;
 mod tls;
 
@@ -22,6 +23,7 @@ pub use keys::{keylog, record_secret};
 pub use layers::{Field, Layer, decrypted_layers, layers};
 #[cfg(feature = "capture")]
 pub use live::{Capture, start};
+pub use ssh::SshHalf;
 pub use tls::TlsHalf;
 
 #[derive(Debug, Clone)]

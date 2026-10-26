@@ -6,7 +6,7 @@ use crate::Direction;
 use super::decrypt::{alert_name, handshake_messages};
 use super::dissect::{ACK, App, Headers, LinkLayer, Packet, TcpOption, Transport, flag_names};
 use super::tftp::{Tftp, error_name};
-use super::tls;
+use super::{ssh, tls};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Field {
@@ -56,6 +56,7 @@ pub fn layers(p: &Packet, number: usize) -> Vec<Layer> {
         }),
         App::Tls => out.extend(tls::describe(payload, p.tls, base, &p.protocol)),
         App::Tftp => out.push(tftp_layer(payload, base)),
+        App::Ssh => out.extend(ssh::describe(payload, p.ssh, base)),
     }
     out
 }
@@ -77,6 +78,7 @@ fn protocol_chain(p: &Packet, h: &Headers) -> String {
         App::FtpData => ":ftp-data",
         App::Tls => ":tls",
         App::Tftp => ":tftp",
+        App::Ssh => ":ssh",
     };
     format!("{link}ip:{l4}{app}")
 }

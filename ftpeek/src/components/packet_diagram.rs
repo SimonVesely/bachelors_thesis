@@ -2,6 +2,8 @@ use dioxus::prelude::*;
 use proto_core::{Direction, EventKind, MessageEvent, Protocol};
 use proto_tftp::Packet;
 
+use super::packet_detail::{sftp_header, sftp_type_name};
+
 #[component]
 pub fn PacketDiagram(logs: Signal<Vec<MessageEvent>>, selected: Signal<Option<usize>>) -> Element {
     let idx = selected();
@@ -43,6 +45,7 @@ fn render_diagram(e: &MessageEvent) -> Element {
     let (sec_label, sec_fill) = match e.kind {
         EventKind::TcpOpen | EventKind::TcpClose => ("N/A (TCP)", "#8a8d93"),
         EventKind::Tls => ("TLS HANDSHAKE", "#7b2fb0"),
+        _ if e.encrypted && e.protocol == Protocol::Sftp => ("SSH ENCRYPTED", "#5b2a86"),
         _ if e.encrypted => ("TLS ENCRYPTED", "#5b2a86"),
         _ => ("PLAINTEXT", "#c0392b"),
     };
@@ -59,15 +62,19 @@ fn render_diagram(e: &MessageEvent) -> Element {
         Err(_) => "unknown".to_string(),
     };
 
-    let data_title = if e.encrypted {
+    let data_title = if e.encrypted && e.protocol == Protocol::Sftp {
+        "DATA (decrypted view - SSH on the wire)"
+    } else if e.encrypted {
         "DATA (decrypted view - TLS on the wire)"
     } else {
         "DATA (variable)"
     };
     let payload_short = shorten(&e.parsed.clone().unwrap_or_default(), 52);
-    let tftp = (e.protocol == Protocol::Tftp)
-        .then(|| tftp_fields(&e.raw))
-        .flatten();
+    let tftp = match e.protocol {
+        Protocol::Tftp => tftp_fields(&e.raw),
+        Protocol::Sftp => sftp_fields(&e.raw),
+        _ => None,
+    };
 
     rsx! {
         svg {
@@ -192,6 +199,21 @@ fn tftp_fields(raw: &[u8]) -> Option<[(String, String); 3]> {
             field("NAME = VALUE", shorten(&options(&o), 34)),
         ],
     })
+}
+
+fn sftp_fields(raw: &[u8]) -> Option<[(String, String); 3]> {
+    let (length, kind, label, next) = sftp_header(raw)?;
+    Some([
+        ("LENGTH (4 B)".to_string(), length.to_string()),
+        (
+            "TYPE (1 B)".to_string(),
+            format!(
+                "{kind} = {}",
+                sftp_type_name(kind).trim_start_matches("SSH_FXP_")
+            ),
+        ),
+        (format!("{} (4 B)", label.to_uppercase()), next.to_string()),
+    ])
 }
 
 fn shorten(text: &str, max: usize) -> String {
