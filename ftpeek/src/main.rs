@@ -9,8 +9,10 @@ use dioxus_desktop::{Config, WindowBuilder};
 use dioxus_desktop::tao::platform::macos::WindowBuilderExtMacOS;
 
 mod components;
+mod pages;
 mod protocols;
-use components::{AppShell, ModeSelect, ProtocolSelect, Status, Unavailable, UserStore};
+use components::{AppShell, ModeSelect, ProtocolSelect, Unavailable, UserStore};
+use pages::Status;
 use protocols::Proto;
 
 const MAIN_CSS: &str = include_str!("../assets/CSS/main.css");

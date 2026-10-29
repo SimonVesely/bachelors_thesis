@@ -9,7 +9,6 @@ mod packet_diagram;
 mod packet_log;
 mod protocol_select;
 mod shell;
-mod status;
 mod unavailable;
 mod user_manager;
 
@@ -24,6 +23,5 @@ pub use packet_diagram::PacketDiagram;
 pub use packet_log::PacketLog;
 pub use protocol_select::ProtocolSelect;
 pub use shell::AppShell;
-pub use status::Status;
 pub use unavailable::Unavailable;
 pub use user_manager::{open_user_db, UserManager, UserStore};
