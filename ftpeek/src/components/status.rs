@@ -6,35 +6,23 @@ use dioxus::prelude::*;
 use tokio::sync::broadcast;
 
 use proto_core::capture::{Capture, CaptureConfig, Dissector, Packet};
-use proto_core::{MessageEvent, Protocol, event_channel};
-use proto_ftp::FtpServerConfig;
-use proto_ftps::{FtpsMode, FtpsServerConfig};
-use proto_sftp::SftpServerConfig;
-use proto_tftp::TftpServerConfig;
+use proto_core::{MessageEvent, event_channel};
 
 use super::{
-    ClientInfo, ClientList, DirectoryPreview, FrameDetail, FrameDiagram, PacketDetail,
+    ClientInfo, ClientList, DirectoryPreview, FrameDetail, FrameDiagram, OptionField, PacketDetail,
     PacketDiagram, PacketLog, track_client,
 };
+use crate::protocols::{Opt, Options, Proto, ServeCtx};
 use crate::{AppState, Route};
 
 #[component]
-pub fn Status(mode: String, protocol: String) -> Element {
+pub fn Status(mode: String, protocol: Proto) -> Element {
     let state = use_context::<AppState>();
-
-    let is_ftps = protocol == "ftps";
-    let is_tftp = protocol == "tftp";
-    let is_sftp = protocol == "sftp";
-    let is_supported = mode == "server" && (protocol == "ftp" || is_ftps || is_tftp || is_sftp);
-    let default_port: u16 = match (is_tftp, is_sftp) {
-        (true, _) => 69,
-        (_, true) => 22,
-        _ => 21,
-    };
+    let spec = protocol.spec();
+    let is_supported = mode == "server";
 
     let mut root_dir = use_signal(|| "shared".to_string());
-    let mut pi_port = use_signal(move || default_port);
-    let mut dtp_port = use_signal(|| 20u16);
+    let options = use_signal(|| Options::defaults(spec));
     let mut running = use_signal(|| false);
     let mut logs = use_signal(Vec::<MessageEvent>::new);
     let mut selected = use_signal(|| None::<usize>);
@@ -42,8 +30,6 @@ pub fn Status(mode: String, protocol: String) -> Element {
     let filter = use_signal(|| None::<u64>);
     let mut error_msg = use_signal(|| None::<String>);
     let mut shutdown_tx = use_signal(|| None::<broadcast::Sender<()>>);
-    let mut ftps_implicit = use_signal(|| false);
-    let mut tftp_allow_write = use_signal(|| true);
     let mut packets = use_signal(Vec::<Packet>::new);
     let mut use_pcap = use_signal(|| true);
     let mut wire = use_signal(|| false);
@@ -51,25 +37,23 @@ pub fn Status(mode: String, protocol: String) -> Element {
     let mut capture_note = use_signal(|| None::<String>);
     let decrypt = use_signal(|| false);
 
-    let access_label = if is_tftp {
-        "none (TFTP has no login)".to_string()
+    let access_label = if !spec.login() {
+        format!("none ({} has no login)", spec.label())
     } else if (state.anonymous)() {
         "anonymous".to_string()
     } else {
         format!("{} user(s)", state.user_names.read().len())
     };
 
-    let protocol_label = if is_tftp {
-        "TFTP"
-    } else if is_sftp {
-        "SFTP"
-    } else if !is_ftps {
-        "FTP"
-    } else if ftps_implicit() {
-        "FTPS (implicit)"
-    } else {
-        "FTPS (explicit)"
-    };
+    let protocol_label = spec.title(&options.read());
+    let choices = spec
+        .options()
+        .iter()
+        .filter(|o| matches!(o, Opt::Choice { .. }));
+    let ports = spec
+        .options()
+        .iter()
+        .filter(|o| matches!(o, Opt::Port { .. }));
 
     let iface_label = state
         .selected_interface
@@ -104,7 +88,7 @@ pub fn Status(mode: String, protocol: String) -> Element {
         let (shutdown_send, shutdown_recv) = broadcast::channel(4);
         shutdown_tx.set(Some(shutdown_send));
 
-        let users = if is_tftp || (state.anonymous)() {
+        let users = if !spec.login() || (state.anonymous)() {
             None
         } else {
             match &*state.users.read() {
@@ -116,45 +100,10 @@ pub fn Status(mode: String, protocol: String) -> Element {
             }
         };
 
-        let tftp_cfg = TftpServerConfig {
-            bind_addr: bind_ip,
-            port: pi_port(),
-            root_dir: root.clone(),
-            allow_write: tftp_allow_write(),
-        };
-        let sftp_cfg = SftpServerConfig {
-            bind_addr: bind_ip,
-            port: pi_port(),
-            root_dir: root.clone(),
-            users: users.clone(),
-        };
-        let cfg = FtpServerConfig {
-            bind_addr: bind_ip,
-            control_port: pi_port(),
-            pasv_port_start: dtp_port(),
-            pasv_port_end: dtp_port(),
-            root_dir: root,
-            users,
-        };
-        let ftps_mode = if ftps_implicit() {
-            FtpsMode::Implicit
-        } else {
-            FtpsMode::Explicit
-        };
-
         let capture_cfg = CaptureConfig {
             server_ip: bind_ip,
-            protocol: match (is_tftp, is_ftps, is_sftp) {
-                (true, _, _) => Protocol::Tftp,
-                (_, true, _) => Protocol::Ftps,
-                (_, _, true) => Protocol::Sftp,
-                _ => Protocol::Ftp,
-            },
-            ports: if is_tftp || is_sftp {
-                vec![pi_port()]
-            } else {
-                vec![pi_port(), dtp_port()]
-            },
+            protocol: spec.core(),
+            ports: spec.capture_ports(&options.read()),
         };
         let (frame_tx, mut frame_rx) = tokio::sync::mpsc::unbounded_channel();
         let started = match use_pcap() {
@@ -188,24 +137,16 @@ pub fn Status(mode: String, protocol: String) -> Element {
             }
         }
 
+        let server = spec.serve(ServeCtx {
+            bind: bind_ip,
+            root,
+            users,
+            opts: options(),
+            events: tx,
+            shutdown: shutdown_recv,
+        });
         spawn(async move {
-            let result = if is_tftp {
-                proto_tftp::serve(tftp_cfg, tx, shutdown_recv).await
-            } else if is_sftp {
-                proto_sftp::serve(sftp_cfg, tx, shutdown_recv).await
-            } else if is_ftps {
-                proto_ftps::serve(
-                    FtpsServerConfig {
-                        ftp: cfg,
-                        mode: ftps_mode,
-                    },
-                    tx,
-                    shutdown_recv,
-                )
-                .await
-            } else {
-                proto_ftp::serve(cfg, tx, shutdown_recv).await
-            };
+            let result = server.await;
             if let Err(err) = result {
                 error_msg.set(Some(format!("Server error: {err}")));
             }
@@ -237,7 +178,7 @@ pub fn Status(mode: String, protocol: String) -> Element {
             if !is_supported {
                 Link { class: "back-link", to: Route::ModeSelect {}, "\u{2190} main menu" }
                 p { class: "section-subtitle",
-                    "Only the FTP, FTPS, TFTP and SFTP servers are wired up so far - {protocol} for {mode} isn't running yet."
+                    "Only the server mode is wired up so far - {spec.label()} for {mode} isn't running yet."
                 }
             } else {
                 div { class: "control-bar",
@@ -269,39 +210,8 @@ pub fn Status(mode: String, protocol: String) -> Element {
                         }
                     }
                     div { class: "control-bar__settings",
-                        if is_ftps {
-                            label { class: "control-bar__field",
-                                span { class: "control-bar__label", "FTPS mode" }
-                                select {
-                                    class: "status-summary__input",
-                                    disabled: running(),
-                                    value: if ftps_implicit() { "implicit" } else { "explicit" },
-                                    onchange: move |e| {
-                                        let implicit = e.value() == "implicit";
-                                        ftps_implicit.set(implicit);
-                                        if implicit && pi_port() == 21 {
-                                            pi_port.set(990);
-                                        } else if !implicit && pi_port() == 990 {
-                                            pi_port.set(21);
-                                        }
-                                    },
-                                    option { value: "explicit", "Explicit - AUTH TLS" }
-                                    option { value: "implicit", "Implicit - TLS from first byte" }
-                                }
-                            }
-                        }
-                        if is_tftp {
-                            label { class: "control-bar__field",
-                                span { class: "control-bar__label", "Uploads (WRQ)" }
-                                select {
-                                    class: "status-summary__input",
-                                    disabled: running(),
-                                    value: if tftp_allow_write() { "allow" } else { "deny" },
-                                    onchange: move |e| tftp_allow_write.set(e.value() == "allow"),
-                                    option { value: "allow", "Allowed" }
-                                    option { value: "deny", "Disabled (read only)" }
-                                }
-                            }
+                        for opt in choices {
+                            OptionField { key: "{opt.key()}", protocol, opt, options, disabled: running() }
                         }
                         div { class: "control-bar__field control-bar__field--grow",
                             span { class: "control-bar__label", "Root directory" }
@@ -326,35 +236,8 @@ pub fn Status(mode: String, protocol: String) -> Element {
                                 }
                             }
                         }
-                        label { class: "control-bar__field control-bar__field--port",
-                            span { class: "control-bar__label", if is_tftp { "Port (UDP)" } else if is_sftp { "Port (TCP)" } else { "PI port" } }
-                            input {
-                                class: "status-summary__input",
-                                r#type: "number",
-                                value: "{pi_port}",
-                                disabled: running(),
-                                oninput: move |e| {
-                                    if let Ok(v) = e.value().parse() {
-                                        pi_port.set(v);
-                                    }
-                                },
-                            }
-                        }
-                        if !is_tftp && !is_sftp {
-                            label { class: "control-bar__field control-bar__field--port",
-                                span { class: "control-bar__label", "DTP port" }
-                                input {
-                                    class: "status-summary__input",
-                                    r#type: "number",
-                                    value: "{dtp_port}",
-                                    disabled: running(),
-                                    oninput: move |e| {
-                                        if let Ok(v) = e.value().parse() {
-                                            dtp_port.set(v);
-                                        }
-                                    },
-                                }
-                            }
+                        for opt in ports {
+                            OptionField { key: "{opt.key()}", protocol, opt, options, disabled: running() }
                         }
                         div { class: "control-bar__field",
                             span { class: "control-bar__label", "Packet capture" }
@@ -372,16 +255,10 @@ pub fn Status(mode: String, protocol: String) -> Element {
                             }
                         }
                     }
-                    if is_tftp || is_ftps || is_sftp || error_msg().is_some() {
+                    if !spec.hints().is_empty() || error_msg().is_some() {
                         div { class: "control-bar__notes",
-                            if is_tftp {
-                                span { class: "status-hint", "TFTP has no login: anyone who reaches this port can download every file in the root directory." }
-                            }
-                            if is_sftp {
-                                span { class: "status-hint", "A new SSH host key is generated on every start - the client will warn that the key changed. If port 22 is taken by the system SSH server, use 2222." }
-                            }
-                            if is_ftps {
-                                span { class: "status-hint", "A self-signed certificate is generated on every start - the client will ask you to trust it." }
+                            for hint in spec.hints() {
+                                span { key: "{hint}", class: "status-hint", "{hint}" }
                             }
                             if let Some(err) = error_msg() {
                                 span { class: "status-error", "{err}" }
@@ -396,7 +273,7 @@ pub fn Status(mode: String, protocol: String) -> Element {
 
                 div { class: "status-grid status-grid--wide",
                     div { class: "status-grid__cell status-grid__cell--log",
-                        PacketLog { logs, packets, wire, selected, clients, filter, decrypt, can_decrypt: is_ftps && wire() }
+                        PacketLog { logs, packets, wire, selected, clients, filter, decrypt, can_decrypt: spec.can_decrypt() && wire() }
                     }
                     div { class: "status-grid__cell status-grid__cell--split",
                         div { class: "status-grid__sub status-grid__sub--row",

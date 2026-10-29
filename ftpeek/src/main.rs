@@ -9,7 +9,9 @@ use dioxus_desktop::{Config, WindowBuilder};
 use dioxus_desktop::tao::platform::macos::WindowBuilderExtMacOS;
 
 mod components;
+mod protocols;
 use components::{AppShell, ModeSelect, ProtocolSelect, Status, Unavailable, UserStore};
+use protocols::Proto;
 
 const MAIN_CSS: &str = include_str!("../assets/CSS/main.css");
 const FONT_LIGHT: &[u8] = include_bytes!("../assets/fonts/VafleVUT-Light.otf");
@@ -53,7 +55,7 @@ enum Route {
     ProtocolSelect { mode: String },
 
     #[route("/status/:mode/:protocol")]
-    Status { mode: String, protocol: String },
+    Status { mode: String, protocol: Proto },
 
     #[route("/unavailable/:mode")]
     Unavailable { mode: String },
