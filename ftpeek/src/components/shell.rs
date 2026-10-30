@@ -78,6 +78,7 @@ pub fn AppShell() -> Element {
                                 span { class: "info-modal__tag", "rustls" }
                                 span { class: "info-modal__tag", "russh" }
                                 span { class: "info-modal__tag", "rcgen" }
+                                span { class: "info-modal__tag", "pcap" }
                                 span { class: "info-modal__tag", "Serde" }
                                 span { class: "info-modal__tag", "Tracing" }
                                 span { class: "info-modal__tag", "Anyhow/thiserror" }
