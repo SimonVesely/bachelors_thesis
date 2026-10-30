@@ -1,8 +1,8 @@
 use dioxus::prelude::*;
-use proto_core::{Direction, EventKind, MessageEvent, Protocol};
-use proto_tftp::Packet;
+use proto_core::{Direction, EventKind, MessageEvent};
 
-use super::packet_detail::{sftp_header, sftp_type_name};
+use crate::protocols::Proto;
+use crate::util::shorten;
 
 #[component]
 pub fn PacketDiagram(logs: Signal<Vec<MessageEvent>>, selected: Signal<Option<usize>>) -> Element {
@@ -42,12 +42,13 @@ fn render_diagram(e: &MessageEvent) -> Element {
     let proto_label = format!("{:?}", e.protocol);
     let len_label = format!("{} B", e.length);
 
+    let spec = Proto::of(e.protocol).spec();
+    let channel = spec.channel().name;
     let (sec_label, sec_fill) = match e.kind {
-        EventKind::TcpOpen | EventKind::TcpClose => ("N/A (TCP)", "#8a8d93"),
-        EventKind::Tls => ("TLS HANDSHAKE", "#7b2fb0"),
-        _ if e.encrypted && e.protocol == Protocol::Sftp => ("SSH ENCRYPTED", "#5b2a86"),
-        _ if e.encrypted => ("TLS ENCRYPTED", "#5b2a86"),
-        _ => ("PLAINTEXT", "#c0392b"),
+        EventKind::TcpOpen | EventKind::TcpClose => ("N/A (TCP)".to_string(), "#8a8d93"),
+        EventKind::Tls => ("TLS HANDSHAKE".to_string(), "#7b2fb0"),
+        _ if e.encrypted => (format!("{channel} ENCRYPTED"), "#5b2a86"),
+        _ => ("PLAINTEXT".to_string(), "#c0392b"),
     };
 
     let (src, dst) = match e.direction {
@@ -62,19 +63,12 @@ fn render_diagram(e: &MessageEvent) -> Element {
         Err(_) => "unknown".to_string(),
     };
 
-    let data_title = if e.encrypted && e.protocol == Protocol::Sftp {
-        "DATA (decrypted view - SSH on the wire)"
-    } else if e.encrypted {
-        "DATA (decrypted view - TLS on the wire)"
-    } else {
-        "DATA (variable)"
+    let data_title = match e.encrypted {
+        true => format!("DATA (decrypted view - {channel} on the wire)"),
+        false => "DATA (variable)".to_string(),
     };
     let payload_short = shorten(&e.parsed.clone().unwrap_or_default(), 52);
-    let tftp = match e.protocol {
-        Protocol::Tftp => tftp_fields(&e.raw),
-        Protocol::Sftp => sftp_fields(&e.raw),
-        _ => None,
-    };
+    let cells = spec.diagram_cells(e);
 
     rsx! {
         svg {
@@ -138,7 +132,7 @@ fn render_diagram(e: &MessageEvent) -> Element {
             text { x: "410", y: "158", "text-anchor": "middle", "font-size": "9", "font-weight": "700", fill: "#ffffff", "SECURITY" }
             text { x: "410", y: "174", "text-anchor": "middle", "font-size": "12", "font-weight": "700", fill: "#ffffff", "{sec_label}" }
 
-            if let Some([(l1, v1), (l2, v2), (l3, v3)]) = tftp {
+            if let Some([(l1, v1), (l2, v2), (l3, v3)]) = cells {
                 rect { x: "20", y: "182", width: "130", height: "48", fill: "#fff3c4", stroke: "#16171a", "stroke-width": "1" }
                 text { x: "85", y: "197", "text-anchor": "middle", "font-size": "9", "font-weight": "700", fill: "#5c4b00", "{l1}" }
                 text { x: "85", y: "216", "text-anchor": "middle", "font-size": "11", fill: "#3a2f00", "{v1}" }
@@ -154,73 +148,5 @@ fn render_diagram(e: &MessageEvent) -> Element {
                 text { x: "280", y: "216", "text-anchor": "middle", "font-size": "11", fill: "#3a2f00", "{payload_short}" }
             }
         }
-    }
-}
-
-fn tftp_fields(raw: &[u8]) -> Option<[(String, String); 3]> {
-    let field = |title: &str, value: String| (title.to_string(), value);
-    let opcode = |n: u16, name: &str| field("OPCODE (2 B)", format!("{n} = {name}"));
-    let options = |opts: &[(String, String)]| {
-        let list: Vec<String> = opts.iter().map(|(n, v)| format!("{n}={v}")).collect();
-        list.join(", ")
-    };
-    Some(match Packet::parse(raw)? {
-        Packet::Rrq(r) | Packet::Wrq(r) => {
-            let (n, name) = if raw.get(1) == Some(&1) {
-                (1, "RRQ")
-            } else {
-                (2, "WRQ")
-            };
-            let rest = format!("{} {}", r.mode, options(&r.options));
-            [
-                opcode(n, name),
-                field("FILENAME", shorten(&r.filename, 16)),
-                field("MODE + OPTIONS", shorten(rest.trim(), 34)),
-            ]
-        }
-        Packet::Data { block, data } => [
-            opcode(3, "DATA"),
-            field("BLOCK # (2 B)", block.to_string()),
-            field("DATA (0-blksize B)", format!("{} bytes", data.len())),
-        ],
-        Packet::Ack { block } => [
-            opcode(4, "ACK"),
-            field("BLOCK # (2 B)", block.to_string()),
-            field("(no payload)", "-".to_string()),
-        ],
-        Packet::Error { code, message } => [
-            opcode(5, "ERROR"),
-            field("ERROR CODE (2 B)", code.to_string()),
-            field("MESSAGE", shorten(&message, 34)),
-        ],
-        Packet::Oack { options: o } => [
-            opcode(6, "OACK"),
-            field("OPTIONS", o.len().to_string()),
-            field("NAME = VALUE", shorten(&options(&o), 34)),
-        ],
-    })
-}
-
-fn sftp_fields(raw: &[u8]) -> Option<[(String, String); 3]> {
-    let (length, kind, label, next) = sftp_header(raw)?;
-    Some([
-        ("LENGTH (4 B)".to_string(), length.to_string()),
-        (
-            "TYPE (1 B)".to_string(),
-            format!(
-                "{kind} = {}",
-                sftp_type_name(kind).trim_start_matches("SSH_FXP_")
-            ),
-        ),
-        (format!("{} (4 B)", label.to_uppercase()), next.to_string()),
-    ])
-}
-
-fn shorten(text: &str, max: usize) -> String {
-    if text.chars().count() > max {
-        let truncated: String = text.chars().take(max - 3).collect();
-        format!("{truncated}...")
-    } else {
-        text.to_string()
     }
 }

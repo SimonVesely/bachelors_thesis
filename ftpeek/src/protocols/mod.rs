@@ -13,8 +13,10 @@ use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use proto_core::{EventSender, Protocol, UserDb};
+use proto_core::{Direction, EventKind, EventSender, MessageEvent, Protocol, UserDb};
 use tokio::sync::broadcast;
+
+use crate::components::ClientInfo;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Proto {
@@ -34,6 +36,13 @@ impl Proto {
             Proto::Tftp => &tftp::Tftp,
             Proto::Sftp => &sftp::Sftp,
         }
+    }
+
+    pub fn of(protocol: Protocol) -> Proto {
+        Proto::ALL
+            .into_iter()
+            .find(|p| p.spec().core() == protocol)
+            .unwrap_or(Proto::Ftp)
     }
 }
 
@@ -125,6 +134,35 @@ impl Options {
     }
 }
 
+pub type Rows = Vec<(&'static str, String)>;
+pub type Cells = [(String, String); 3];
+
+pub struct Channel {
+    pub name: &'static str,
+    pub title: &'static str,
+    pub record: (&'static str, &'static str),
+}
+
+pub const TLS: Channel = Channel {
+    name: "TLS",
+    title: "Transport Layer Security",
+    record: ("Record layer", "Application Data (encrypted)"),
+};
+
+pub const SSH: Channel = Channel {
+    name: "SSH",
+    title: "Secure Shell",
+    record: ("Binary packet", "SSH-2.0 channel data (encrypted)"),
+};
+
+pub fn track_common(client: &mut ClientInfo, e: &MessageEvent) {
+    match e.kind {
+        EventKind::Data => client.data_bytes += e.length as u64,
+        EventKind::TcpClose if e.peer == client.addr => client.connected = false,
+        _ => {}
+    }
+}
+
 pub trait Spec: Sync {
     fn id(&self) -> &'static str;
     fn label(&self) -> &'static str;
@@ -151,4 +189,55 @@ pub trait Spec: Sync {
     }
 
     fn on_change(&self, _key: &str, _opts: &mut Options) {}
+
+    fn channel(&self) -> Channel {
+        TLS
+    }
+
+    fn transport_title(&self) -> &'static str {
+        "Transmission Control Protocol"
+    }
+
+    fn app_title(&self, _e: &MessageEvent) -> String {
+        format!("Application ({:?})", self.core())
+    }
+
+    fn detail_rows(&self, _e: &MessageEvent) -> Rows {
+        Vec::new()
+    }
+
+    fn diagram_cells(&self, _e: &MessageEvent) -> Option<Cells> {
+        None
+    }
+
+    fn proto_column(&self, e: &MessageEvent) -> String {
+        let base = match e.kind {
+            EventKind::TcpOpen | EventKind::TcpClose => return "TCP".into(),
+            EventKind::Tls => return "TLS".into(),
+            EventKind::Data => format!("{}-DATA", self.label()),
+            EventKind::Message => self.label().to_string(),
+        };
+        match e.encrypted {
+            true => format!("{base}+{}", self.channel().name),
+            false => base,
+        }
+    }
+
+    fn info(&self, e: &MessageEvent) -> String {
+        let text = e.parsed.clone().unwrap_or_default();
+        match (e.kind, e.direction) {
+            (EventKind::Message, Direction::ClientToServer) => format!("Request: {text}"),
+            (EventKind::Message, Direction::ServerToClient) => format!("Response: {text}"),
+            _ => text,
+        }
+    }
+
+    fn starts_group(&self, e: &MessageEvent) -> bool {
+        e.kind == EventKind::TcpOpen
+            || (e.kind == EventKind::Message && e.direction == Direction::ClientToServer)
+    }
+
+    fn track(&self, client: &mut ClientInfo, e: &MessageEvent) {
+        track_common(client, e);
+    }
 }

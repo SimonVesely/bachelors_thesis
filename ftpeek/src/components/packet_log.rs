@@ -3,9 +3,10 @@ use std::time::SystemTime;
 
 use dioxus::prelude::*;
 use proto_core::capture::{ACK, App, Packet, SYN};
-use proto_core::{Direction, EventKind, MessageEvent, Protocol};
+use proto_core::{Direction, EventKind, MessageEvent};
 
 use super::ClientInfo;
+use crate::protocols::Proto;
 
 const ROW_HEIGHT: f64 = 20.0;
 const OVERSCAN: usize = 15;
@@ -22,51 +23,6 @@ struct Row {
     end_of_group: bool,
 }
 
-fn event_proto(e: &MessageEvent) -> String {
-    if e.protocol == Protocol::Sftp && !matches!(e.kind, EventKind::TcpOpen | EventKind::TcpClose) {
-        let ssh = e
-            .parsed
-            .as_deref()
-            .is_some_and(|t| t.starts_with("SSH_MSG"));
-        return if ssh { "SSH" } else { "SFTP" }.to_string();
-    }
-    let base = match (e.kind, e.protocol) {
-        (EventKind::TcpOpen | EventKind::TcpClose, _) => return "TCP".to_string(),
-        (EventKind::Tls, _) => return "TLS".to_string(),
-        (EventKind::Data, Protocol::Ftp) => "FTP-DATA",
-        (EventKind::Data, Protocol::Ftps) => "FTPS-DATA",
-        (EventKind::Data, Protocol::Tftp) => "TFTP",
-        (EventKind::Data, Protocol::Sftp) => "SFTP",
-        (EventKind::Message, Protocol::Ftp) => "FTP",
-        (EventKind::Message, Protocol::Ftps) => "FTPS",
-        (EventKind::Message, Protocol::Tftp) => "TFTP",
-        (EventKind::Message, Protocol::Sftp) => "SFTP",
-    };
-    if e.encrypted {
-        format!("{base}+TLS")
-    } else {
-        base.to_string()
-    }
-}
-
-fn event_info(e: &MessageEvent) -> String {
-    let text = e.parsed.clone().unwrap_or_default();
-    if e.protocol == Protocol::Tftp {
-        return text;
-    }
-    match (e.kind, e.direction) {
-        (EventKind::Message, Direction::ClientToServer) => format!("Request: {text}"),
-        (EventKind::Message, Direction::ServerToClient) => format!("Response: {text}"),
-        _ => text,
-    }
-}
-
-fn event_starts_group(e: &MessageEvent) -> bool {
-    e.kind == EventKind::TcpOpen
-        || (e.kind == EventKind::Message && e.direction == Direction::ClientToServer)
-        || (e.protocol == Protocol::Tftp && e.direction == Direction::ClientToServer)
-}
-
 fn packet_starts_group(p: &Packet) -> bool {
     p.tcp_flags & (SYN | ACK) == SYN
         || (p.direction == Direction::ClientToServer
@@ -74,6 +30,7 @@ fn packet_starts_group(p: &Packet) -> bool {
 }
 
 fn event_row(no: usize, e: &MessageEvent, t0: SystemTime, current: Option<usize>) -> Row {
+    let spec = Proto::of(e.protocol).spec();
     let (src, dst) = match e.direction {
         Direction::ClientToServer => (e.peer, e.local),
         Direction::ServerToClient => (e.local, e.peer),
@@ -96,9 +53,9 @@ fn event_row(no: usize, e: &MessageEvent, t0: SystemTime, current: Option<usize>
         time: elapsed(e.timestamp, t0),
         src: src.to_string(),
         dst: dst.to_string(),
-        proto: event_proto(e),
+        proto: spec.proto_column(e),
         len: e.length,
-        info: event_info(e),
+        info: spec.info(e),
         end_of_group: false,
     }
 }
@@ -198,7 +155,7 @@ pub fn PacketLog(
             scroll_top(),
             view_height(),
             |i| event_row(i + 1, &all[i], t0, current),
-            |i| event_starts_group(&all[i]),
+            |i| Proto::of(all[i].protocol).spec().starts_group(&all[i]),
         );
         (rows, shown.len(), all.len())
     };

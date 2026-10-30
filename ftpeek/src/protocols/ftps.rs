@@ -1,8 +1,9 @@
-use proto_core::Protocol;
+use proto_core::{MessageEvent, Protocol};
 use proto_ftps::{FtpsMode, FtpsServerConfig};
 
-use super::ftp::{DTP_PORT, PI_PORT, config, ports};
+use super::ftp::{DTP_PORT, PI_PORT, config, ports, track_login};
 use super::{Opt, Options, ServeCtx, ServeFuture, Spec};
+use crate::components::ClientInfo;
 
 pub struct Ftps;
 
@@ -75,5 +76,9 @@ impl Spec for Ftps {
             mode,
         };
         Box::pin(proto_ftps::serve(cfg, ctx.events, ctx.shutdown))
+    }
+
+    fn track(&self, client: &mut ClientInfo, e: &MessageEvent) {
+        track_login(client, e);
     }
 }

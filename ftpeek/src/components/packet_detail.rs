@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
-use proto_core::{EventKind, MessageEvent, Protocol};
-use proto_tftp::{Packet, error_name};
+use proto_core::{EventKind, MessageEvent};
+
+use crate::protocols::{Proto, Rows};
 
 struct DetailView {
     frame_title: String,
@@ -15,10 +16,10 @@ struct DetailView {
     hex: String,
     hex_label: &'static str,
     show_app: bool,
-    tls_rows: Vec<(&'static str, String)>,
+    tls_rows: Rows,
     security_title: &'static str,
     transport_title: &'static str,
-    app_rows: Vec<(&'static str, String)>,
+    app_rows: Rows,
 }
 
 fn build_view(idx: usize, e: &MessageEvent) -> DetailView {
@@ -28,26 +29,19 @@ fn build_view(idx: usize, e: &MessageEvent) -> DetailView {
     };
     let info = e.parsed.clone().unwrap_or_default();
 
-    let sftp = e.protocol == Protocol::Sftp;
+    let spec = Proto::of(e.protocol).spec();
+    let channel = spec.channel();
     let tls_rows = if e.kind == EventKind::Tls {
         vec![("Handshake", info.clone())]
-    } else if sftp && e.encrypted {
-        vec![
-            (
-                "Binary packet",
-                "SSH-2.0 channel data (encrypted)".to_string(),
-            ),
-            (
-                "In this view",
-                "Decrypted by the server - on the wire this is SSH ciphertext".to_string(),
-            ),
-        ]
     } else if e.encrypted {
         vec![
-            ("Record layer", "Application Data (encrypted)".to_string()),
+            (channel.record.0, channel.record.1.to_string()),
             (
                 "In this view",
-                "Decrypted by the server - on the wire this is ciphertext".to_string(),
+                format!(
+                    "Decrypted by the server - on the wire this is {} ciphertext",
+                    channel.name
+                ),
             ),
         ]
     } else {
@@ -62,12 +56,7 @@ fn build_view(idx: usize, e: &MessageEvent) -> DetailView {
         direction: format!("{:?}", e.direction),
         peer: e.peer.to_string(),
         local: e.local.to_string(),
-        protocol_title: match e.protocol {
-            Protocol::Tftp => "Trivial File Transfer Protocol".to_string(),
-            Protocol::Sftp if info.starts_with("SSH_MSG") => "Secure Shell (SSH)".to_string(),
-            Protocol::Sftp => "SSH File Transfer Protocol".to_string(),
-            other => format!("Application ({other:?})"),
-        },
+        protocol_title: spec.app_title(e),
         info,
         hex: hex_dump(&e.raw),
         hex_label: if e.encrypted {
@@ -77,120 +66,9 @@ fn build_view(idx: usize, e: &MessageEvent) -> DetailView {
         },
         show_app: !matches!(e.kind, EventKind::Tls),
         tls_rows,
-        security_title: if sftp {
-            "Secure Shell"
-        } else {
-            "Transport Layer Security"
-        },
-        transport_title: match e.protocol {
-            Protocol::Tftp => "User Datagram Protocol",
-            _ => "Transmission Control Protocol",
-        },
-        app_rows: match e.protocol {
-            Protocol::Tftp => tftp_rows(&e.raw),
-            Protocol::Sftp => sftp_rows(&e.raw),
-            _ => Vec::new(),
-        },
-    }
-}
-
-pub fn sftp_type_name(kind: u8) -> &'static str {
-    match kind {
-        1 => "SSH_FXP_INIT",
-        2 => "SSH_FXP_VERSION",
-        3 => "SSH_FXP_OPEN",
-        4 => "SSH_FXP_CLOSE",
-        5 => "SSH_FXP_READ",
-        6 => "SSH_FXP_WRITE",
-        7 => "SSH_FXP_LSTAT",
-        8 => "SSH_FXP_FSTAT",
-        9 => "SSH_FXP_SETSTAT",
-        10 => "SSH_FXP_FSETSTAT",
-        11 => "SSH_FXP_OPENDIR",
-        12 => "SSH_FXP_READDIR",
-        13 => "SSH_FXP_REMOVE",
-        14 => "SSH_FXP_MKDIR",
-        15 => "SSH_FXP_RMDIR",
-        16 => "SSH_FXP_REALPATH",
-        17 => "SSH_FXP_STAT",
-        18 => "SSH_FXP_RENAME",
-        19 => "SSH_FXP_READLINK",
-        20 => "SSH_FXP_SYMLINK",
-        101 => "SSH_FXP_STATUS",
-        102 => "SSH_FXP_HANDLE",
-        103 => "SSH_FXP_DATA",
-        104 => "SSH_FXP_NAME",
-        105 => "SSH_FXP_ATTRS",
-        200 => "SSH_FXP_EXTENDED",
-        201 => "SSH_FXP_EXTENDED_REPLY",
-        _ => "unknown",
-    }
-}
-
-pub fn sftp_header(raw: &[u8]) -> Option<(u32, u8, &'static str, u32)> {
-    let length = u32::from_be_bytes(raw.get(..4)?.try_into().ok()?);
-    let kind = *raw.get(4)?;
-    let next = u32::from_be_bytes(raw.get(5..9)?.try_into().ok()?);
-    let label = if kind <= 2 { "Version" } else { "Request id" };
-    Some((length, kind, label, next))
-}
-
-fn sftp_rows(raw: &[u8]) -> Vec<(&'static str, String)> {
-    match sftp_header(raw) {
-        Some((length, kind, label, next)) => vec![
-            ("Length", format!("{length} bytes")),
-            ("Type", format!("{} ({kind})", sftp_type_name(kind))),
-            (label, next.to_string()),
-        ],
-        None => Vec::new(),
-    }
-}
-
-fn tftp_rows(raw: &[u8]) -> Vec<(&'static str, String)> {
-    let opcode = |n: u16, name: &str| ("Opcode", format!("{name} ({n})"));
-    let options = |opts: &[(String, String)]| {
-        opts.iter()
-            .map(|(n, v)| format!("{n}={v}"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    match Packet::parse(raw) {
-        Some(Packet::Rrq(r)) | Some(Packet::Wrq(r)) => {
-            let is_read = raw.get(1) == Some(&1);
-            let mut rows = vec![
-                if is_read {
-                    opcode(1, "Read Request")
-                } else {
-                    opcode(2, "Write Request")
-                },
-                ("Source file", r.filename),
-                ("Type", r.mode),
-            ];
-            if !r.options.is_empty() {
-                rows.push(("Options", options(&r.options)));
-            }
-            rows
-        }
-        Some(Packet::Data { block, data }) => vec![
-            opcode(3, "Data Packet"),
-            ("Block", block.to_string()),
-            ("Data length", format!("{} bytes", data.len())),
-        ],
-        Some(Packet::Ack { block }) => {
-            vec![opcode(4, "Acknowledgement"), ("Block", block.to_string())]
-        }
-        Some(Packet::Error { code, message }) => vec![
-            opcode(5, "Error Code"),
-            ("Error code", format!("{} ({code})", error_name(code))),
-            ("Error message", message),
-        ],
-        Some(Packet::Oack { options: o }) => {
-            vec![
-                opcode(6, "Option Acknowledgement"),
-                ("Options", options(&o)),
-            ]
-        }
-        None => vec![("Opcode", "malformed packet".to_string())],
+        security_title: channel.title,
+        transport_title: spec.transport_title(),
+        app_rows: spec.detail_rows(e),
     }
 }
 

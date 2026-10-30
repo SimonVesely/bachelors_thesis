@@ -1,7 +1,9 @@
 use std::net::SocketAddr;
 
 use dioxus::prelude::*;
-use proto_core::{Direction, EventKind, MessageEvent, Protocol};
+use proto_core::MessageEvent;
+
+use crate::protocols::Proto;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClientInfo {
@@ -55,80 +57,7 @@ pub fn track_client(clients: &mut Vec<ClientInfo>, e: &MessageEvent) {
         client.addrs.push(e.peer);
     }
 
-    let text = e.parsed.as_deref().unwrap_or_default();
-    if e.protocol == Protocol::Tftp {
-        track_tftp(client, e, text);
-        return;
-    }
-    if e.protocol == Protocol::Sftp {
-        track_sftp(client, e, text);
-        return;
-    }
-    match (e.kind, e.direction) {
-        (EventKind::Message, Direction::ClientToServer) => {
-            if let Some(name) = strip_verb(text, "USER") {
-                client.user = Some(name.to_string());
-                client.logged_in = false;
-            }
-        }
-        (EventKind::Message, Direction::ServerToClient) => {
-            if text.starts_with("230") {
-                client.logged_in = true;
-            } else if text.starts_with("530") || text.starts_with("234") {
-                client.logged_in = false;
-            }
-        }
-        (EventKind::Data, _) => client.data_bytes += e.length as u64,
-        (EventKind::TcpClose, _) if e.peer == client.addr => client.connected = false,
-        _ => {}
-    }
-}
-
-fn track_tftp(client: &mut ClientInfo, e: &MessageEvent, text: &str) {
-    if let Some(file) = text.strip_prefix("Read Request, File: ") {
-        client.transfer = Some(format!(
-            "download {}",
-            file.split(", ").next().unwrap_or(file)
-        ));
-    } else if let Some(file) = text.strip_prefix("Write Request, File: ") {
-        client.transfer = Some(format!(
-            "upload {}",
-            file.split(", ").next().unwrap_or(file)
-        ));
-    }
-    if e.kind == EventKind::Data && !text.contains("[retransmission]") {
-        client.data_bytes += e.length.saturating_sub(4) as u64;
-    }
-    if text.contains("(last)") || text.starts_with("Error,") {
-        client.connected = false;
-    }
-}
-
-fn track_sftp(client: &mut ClientInfo, e: &MessageEvent, text: &str) {
-    if let Some(rest) = text.strip_prefix("SSH_MSG_USERAUTH_REQUEST user=") {
-        client.user = rest.split(", method=").next().map(str::to_string);
-        client.logged_in = false;
-    } else if text == "SSH_MSG_USERAUTH_SUCCESS" {
-        client.logged_in = true;
-    } else if text.starts_with("SSH_MSG_USERAUTH_FAILURE") {
-        client.logged_in = false;
-    }
-    match e.kind {
-        EventKind::Data => {
-            let bytes = text
-                .rsplit_once('(')
-                .and_then(|(_, n)| n.strip_suffix(" bytes)"))
-                .and_then(|n| n.parse::<u64>().ok());
-            client.data_bytes += bytes.unwrap_or(e.length as u64);
-        }
-        EventKind::TcpClose => client.connected = false,
-        _ => {}
-    }
-}
-
-fn strip_verb<'a>(line: &'a str, verb: &str) -> Option<&'a str> {
-    let (head, rest) = line.split_once(' ')?;
-    head.eq_ignore_ascii_case(verb).then(|| rest.trim())
+    Proto::of(e.protocol).spec().track(client, e);
 }
 
 fn format_bytes(bytes: u64) -> String {

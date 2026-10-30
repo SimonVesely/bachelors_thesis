@@ -11,6 +11,7 @@ use dioxus_desktop::tao::platform::macos::WindowBuilderExtMacOS;
 mod components;
 mod pages;
 mod protocols;
+mod util;
 use components::{AppShell, ModeSelect, ProtocolSelect, Unavailable, UserStore};
 use pages::Status;
 use protocols::Proto;
