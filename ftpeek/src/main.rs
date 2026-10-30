@@ -91,6 +91,8 @@
 //! - new panel on the server page: component in `components/`, placed in the grid in
 //!   `pages/server/mod.rs`, styles in `assets/CSS/main.css`
 //! - new mode (client, fold): new route in `Route` + page in `pages/`, today they lead to `Unavailable`
+
+// -----------------------------Crate import -----------------------------------
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 use std::sync::LazyLock;
 
@@ -105,39 +107,27 @@ mod components;
 mod pages;
 mod protocols;
 mod util;
+
 use components::{AppShell, ModeSelect, ProtocolSelect, Unavailable, UserStore};
 use pages::Status;
 use protocols::Proto;
+// ------------------------------------------------------------------------------
 
-const MAIN_CSS: &str = include_str!("../assets/CSS/main.css");
-const FONT_LIGHT: &[u8] = include_bytes!("../assets/fonts/VafleVUT-Light.otf");
-const FONT_REGULAR: &[u8] = include_bytes!("../assets/fonts/VafleVUT-Regular.otf");
-const FONT_BOLD: &[u8] = include_bytes!("../assets/fonts/VafleVUT-Bold.otf");
-
-static APP_CSS: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "{}\n{}\n{}\n{}",
-        font_face(300, FONT_LIGHT),
-        font_face(400, FONT_REGULAR),
-        font_face(700, FONT_BOLD),
-        MAIN_CSS
-    )
-});
-
-fn font_face(weight: u16, bytes: &[u8]) -> String {
-    format!(
-        "@font-face {{ font-family: 'Vafle VUT'; font-weight: {weight}; \
-         src: url('data:font/otf;base64,{}') format('opentype'); }}",
-        BASE64_STANDARD.encode(bytes)
-    )
-}
-
+/// Global app state shared by all pages through the Dioxus context.
+///
+/// Created once in `App` with `use_context_provider`, read anywhere with
+/// `use_context::<AppState>()`. It is `Copy` because every field is a `Signal`.
 #[derive(Clone, Copy)]
 pub struct AppState {
+    /// Network interfaces found at startup (`proto_core::list_interfaces`).
     pub interfaces: Signal<Vec<proto_core::NetInterface>>,
+    /// IP of the interface the server binds to, `None` = all interfaces (0.0.0.0).
     pub selected_interface: Signal<Option<String>>,
+    /// User database, `Err` holds the message shown when it couldn't be opened.
     pub users: Signal<Result<UserStore, String>>,
+    /// Names of registered users, kept in sync with the database for the UI.
     pub user_names: Signal<Vec<String>>,
+    /// `true` = any user name and password is accepted, the database is ignored.
     pub anonymous: Signal<bool>,
 }
 
@@ -204,4 +194,30 @@ fn App() -> Element {
         document::Style { {APP_CSS.as_str()} }
         Router::<Route> {}
     }
+}
+
+// CSS and fonts are compiled into the binary, so Windows or Linux binary runs
+// without an assets folder next to it. The fonts go in as base64 data URLs because the
+// webview can't load local font files reliably on Windows and Linux.
+const MAIN_CSS: &str = include_str!("../assets/CSS/main.css");
+const FONT_LIGHT: &[u8] = include_bytes!("../assets/fonts/VafleVUT-Light.otf");
+const FONT_REGULAR: &[u8] = include_bytes!("../assets/fonts/VafleVUT-Regular.otf");
+const FONT_BOLD: &[u8] = include_bytes!("../assets/fonts/VafleVUT-Bold.otf");
+
+static APP_CSS: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "{}\n{}\n{}\n{}",
+        font_face(300, FONT_LIGHT),
+        font_face(400, FONT_REGULAR),
+        font_face(700, FONT_BOLD),
+        MAIN_CSS
+    )
+});
+
+fn font_face(weight: u16, bytes: &[u8]) -> String {
+    format!(
+        "@font-face {{ font-family: 'Vafle VUT'; font-weight: {weight}; \
+         src: url('data:font/otf;base64,{}') format('opentype'); }}",
+        BASE64_STANDARD.encode(bytes)
+    )
 }
