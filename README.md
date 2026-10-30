@@ -1,8 +1,8 @@
 [![Build](https://github.com/SimonVesely/bachelors_thesis/actions/workflows/build.yml/badge.svg?event=push)](https://github.com/SimonVesely/bachelors_thesis/actions/workflows/build.yml)
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://simonvesely.github.io/bachelors_thesis/FTPeek/index.html)
-[![Release](https://img.shields.io/github/v/release/SimonVesely/bachelors_thesis)](https://github.com/SimonVesely/bachelors_thesis/releases)
-[![License](https://img.shields.io/github/license/SimonVesely/bachelors_thesis)](LICENSE)
-[![Rust](https://img.shields.io/badge/Rust-2024-green?logo=rust)](https://www.rust-lang.org/)
+[![Release](https://img.shields.io/github/v/release/SimonVesely/bachelors_thesis?color=blue)](https://github.com/SimonVesely/bachelors_thesis/releases)
+[![License](https://img.shields.io/github/license/SimonVesely/bachelors_thesis?color=brightgreen)](LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-2024-brightgreen?logo=rust)](https://www.rust-lang.org/)
 [![dependency status](https://deps.rs/repo/github/SimonVesely/bachelors_thesis/status.svg)](https://deps.rs/repo/github/SimonVesely/bachelors_thesis)
 
 <p align="center">
@@ -63,6 +63,49 @@ crates/
   proto-tftp/     TFTP server
   proto-sftp/     SFTP server
 ftpeek/           Dioxus desktop application
+```
+
+## Architecture
+```mermaid
+flowchart LR
+    client(["<b>Client</b><br/>FileZilla · curl · lftp"])
+
+    subgraph srv["proto-* server"]
+        serve["serve(config, events, shutdown)"]
+    end
+
+    subgraph core["proto-core"]
+        chan["event_channel<br/>MessageEvent"]
+        cap["capture::start<br/>pcap"]
+        dis["Dissector<br/>TCP · TLS · FTP · TFTP · SSH"]
+    end
+
+    subgraph gui["FTPeek"]
+        logs[("logs")]
+        packets[("packets")]
+        evlog["Event log view"]
+        wire["Wireshark view"]
+        clients["Client list"]
+    end
+
+    client <==>|"TCP / UDP"| serve
+    client -.->|"frames on the wire"| cap
+    serve --> chan --> logs
+    cap --> dis --> packets
+    logs --> evlog & clients
+    packets --> wire
+
+    classDef app fill:#1f6feb,stroke:#0b3d91,color:#ffffff
+    classDef server fill:#2da44e,stroke:#116329,color:#ffffff
+    classDef shared fill:#bf8700,stroke:#7d4e00,color:#ffffff
+    classDef ext fill:#eaeef2,stroke:#8c959f,color:#24292f
+    class client ext
+    class serve server
+    class chan,cap,dis shared
+    class logs,packets,evlog,wire,clients app
+    style srv fill:#dafbe1,stroke:#2da44e
+    style core fill:#fff8c5,stroke:#bf8700
+    style gui fill:#ddf4ff,stroke:#1f6feb
 ```
 
 ## Documentation
