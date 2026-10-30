@@ -31,7 +31,6 @@ jobs:
         include:
           - os: macos-latest
             asset_name: ftpeek-macos
-            exe: FTPeek
           - os: windows-latest
             asset_name: ftpeek-windows
             exe: FTPeek.exe
@@ -72,54 +71,45 @@ jobs:
         with:
           workspaces: ". -> target"
 
-      - name: Build portable binary
+      - name: Build binary
+        if: matrix.os != 'macos-latest'
         run: cargo build --release --package ftpeek
 
-      - name: Archive portable binary (unix)
-        if: matrix.os != 'windows-latest'
+      - name: Archive binary (linux)
+        if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
           mkdir -p dist
           # tar keeps the executable bit, so ./FTPeek runs right after unpacking.
-          tar -czf "dist/${{ matrix.asset_name }}-portable.tar.gz" -C target/release "${{ matrix.exe }}"
+          tar -czf "dist/${{ matrix.asset_name }}.tar.gz" -C target/release "${{ matrix.exe }}"
 
-      - name: Archive portable binary (windows)
+      - name: Archive binary (windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Path "target\release\${{ matrix.exe }}" -DestinationPath "dist\${{ matrix.asset_name }}-portable.zip" -Force
+          Compress-Archive -Path "target\release\${{ matrix.exe }}" -DestinationPath "dist\${{ matrix.asset_name }}.zip" -Force
 
       - name: Install Dioxus CLI
+        if: matrix.os == 'macos-latest'
         run: cargo install dioxus-cli --locked
 
       - name: Bundle app (release)
+        if: matrix.os == 'macos-latest'
         run: dx bundle --release --desktop --package ftpeek
 
-      - name: Locate bundle
+      - name: Copy dmg (macos)
+        if: matrix.os == 'macos-latest'
         shell: bash
         run: |
-          BUNDLE_DIR=$(find target/dx -type d -iname "bundle" | head -n 1)
-          if [ -z "$BUNDLE_DIR" ]; then
-            echo "Could not locate dx bundle output under target/dx" >&2
-            find target/dx -maxdepth 4 >&2
+          DMG=$(find target/dx -type f -name "*.dmg" | head -n 1)
+          if [ -z "$DMG" ]; then
+            echo "Could not find a .dmg under target/dx" >&2
+            find target/dx -maxdepth 6 >&2
             exit 1
           fi
-          echo "BUNDLE_DIR=$BUNDLE_DIR" >> "$GITHUB_ENV"
-
-      - name: Archive installers (unix)
-        if: matrix.os != 'windows-latest'
-        shell: bash
-        run: |
-          cd "$(dirname "$BUNDLE_DIR")"
-          zip -r "$GITHUB_WORKSPACE/dist/${{ matrix.asset_name }}-installer.zip" "$(basename "$BUNDLE_DIR")"
-
-      - name: Archive installers (windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $bundleDir = $env:BUNDLE_DIR -replace '/', '\'
-          Compress-Archive -Path $bundleDir -DestinationPath "dist\${{ matrix.asset_name }}-installer.zip" -Force
+          mkdir -p dist
+          cp "$DMG" "dist/${{ matrix.asset_name }}.dmg"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

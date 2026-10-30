@@ -1991,7 +1991,7 @@ checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
 
 [[package]]
 name = "ftpeek"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "base64 0.23.1",
  "dioxus",
@@ -4411,7 +4411,7 @@ dependencies = [
 
 [[package]]
 name = "proto-core"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "argon2",
  "if-addrs",
@@ -4424,7 +4424,7 @@ dependencies = [
 
 [[package]]
 name = "proto-ftp"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "proto-core",
  "time",
@@ -4434,7 +4434,7 @@ dependencies = [
 
 [[package]]
 name = "proto-ftps"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "proto-core",
  "proto-ftp",
@@ -4446,7 +4446,7 @@ dependencies = [
 
 [[package]]
 name = "proto-sftp"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "bytes",
  "proto-core",
@@ -4458,7 +4458,7 @@ dependencies = [
 
 [[package]]
 name = "proto-tftp"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "proto-core",
  "tokio",
