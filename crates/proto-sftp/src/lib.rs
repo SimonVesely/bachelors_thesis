@@ -1,3 +1,71 @@
+//! # SFTP Protocol implementation using SSH File Transfer Protocol version 3 (draft-ietf-secsh-filexfer-02) over SSH-2 (RFCs 4251-4254)
+//! ## About:
+//! - SFTP server made in pure Rust, SSH-2 layer (key exchange, encryption, authentication,
+//! channels) is provided by russh crate, SFTP packet parsing by russh-sftp crate, this crate
+//! implements the file operations and logging
+//! - New ED25519 host key is generated on every start, clients will warn that the key changed
+//! - Authentication only by password:
+//!   - users: None - anonymous, any user name and password is accepted
+//!   - users: Some(UserDb) - checked against proto-core user database (redb + argon2)
+//! - All paths are confined to the root directory, ".." can't leave it, ':' and '\' are rejected
+//! - Every SSH step (auth, channel, subsystem) and every SFTP packet is sent as MessageEvent,
+//! password itself is never logged, only its length
+//! - Supported operations: realpath, stat, lstat, fstat, opendir, readdir, open, read, write,
+//! close, remove, mkdir, rmdir, rename, setstat/fsetstat are accepted but ignored,
+//! symlinks are not supported
+//! - SSH traffic can't be decrypted in FTPeek capture view (russh doesn't expose session keys),
+//! decrypted content is visible in the event log
+//! ## Structure:
+//! - lib.rs - Public API (SftpServerConfig, serve), SSH server, password authentication,
+//! session channel and sftp subsystem handling
+//! - fs.rs - Contains SFTP file operations over the root directory and handle table
+//! - log.rs - Contains event logging, Tee wrapper splitting SSH channel stream into SFTP
+//! packets and their human readable description
+//! ## Public API usage example:
+//! ```
+//! use std::net::{IpAddr, Ipv4Addr};
+//! use std::path::PathBuf;
+//! use std::thread::sleep;
+//! use std::time::Duration;
+//! use tokio::sync::broadcast;
+//!
+//! use proto_core::event_channel;
+//! use proto_sftp::{SftpServerConfig, serve};
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let config = SftpServerConfig {
+//!         bind_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+//!         port: 2222,
+//!         root_dir: PathBuf::from("./sftp_root"),
+//!         users: None,
+//!     };
+//!
+//!     // Initialize the event channel provided by proto_core
+//!     let (events_tx, mut _events_rx) = event_channel();
+//!
+//!     // Initialize the broadcast channel for graceful shutdown
+//!     let (shutdown_tx, shutdown_rx) = broadcast::channel(16);
+//!
+//!     let server_handle = tokio::spawn(async move {
+//!         if let Err(err) = serve(config, events_tx, shutdown_rx).await {
+//!             eprintln!("SFTP server error: {err}");
+//!         }
+//!     });
+//!
+//!     println!("SFTP server is running on 127.0.0.1:2222. Press Ctrl+C to stop.");
+//!     sleep(Duration::from_millis(50));
+//!
+//!     println!("Shutdown signal received, stopping server...");
+//!     let _ = shutdown_tx.send(());
+//!
+//!     server_handle.await?;
+//!     println!("SFTP server successfully shut down.");
+//!
+//!     Ok(())
+//! }
+//! ```
+
 mod fs;
 mod log;
 
