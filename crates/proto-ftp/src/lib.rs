@@ -28,6 +28,7 @@
 //!         pasv_port_start: 30000,
 //!         pasv_port_end: 30100,
 //!         root_dir: PathBuf::from("./ftp_root"),
+//!         users: None,
 //!     };
 //!
 //!     // Initialize the event channel provided by proto_core
