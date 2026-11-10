@@ -8,7 +8,7 @@ use tokio::sync::broadcast;
 
 use proto_core::{EventSender, Protocol, UserDb};
 
-use crate::connection::{PassiveRange, handle_client};
+use crate::connection::{DataPorts, handle_client};
 use crate::tls::TlsUpgrader;
 
 pub struct FtpServerConfig {
@@ -16,6 +16,7 @@ pub struct FtpServerConfig {
     pub control_port: u16,
     pub pasv_port_start: u16,
     pub pasv_port_end: u16,
+    pub active_port: u16,
     pub root_dir: PathBuf,
     pub users: Option<Arc<UserDb>>,
 }
@@ -47,13 +48,17 @@ pub async fn serve_with(
                 let events = events.clone();
                 let root = cfg.root_dir.clone();
                 let users = cfg.users.clone();
-                let pasv_range = PassiveRange { start: cfg.pasv_port_start, end: cfg.pasv_port_end };
+                let ports = DataPorts {
+                    passive_start: cfg.pasv_port_start,
+                    passive_end: cfg.pasv_port_end,
+                    active: cfg.active_port,
+                };
                 let client_shutdown = shutdown.resubscribe();
                 let tls = tls.clone();
 
                 tokio::spawn(async move {
                     if let Err(err) = handle_client(
-                        stream, peer, local, users, root, pasv_range,
+                        stream, peer, local, users, root, ports,
                         events, client_shutdown, protocol, tls, implicit_tls,
                     ).await {
                         tracing::warn!(%peer, %err, "session ended with an error");

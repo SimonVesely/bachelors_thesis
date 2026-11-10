@@ -12,18 +12,37 @@ pub(super) const PI_PORT: Opt = Opt::Port {
     default: 21,
 };
 
-pub(super) const DTP_PORT: Opt = Opt::Port {
-    key: "dtp",
-    label: "Passive port",
+pub(super) const ACTIVE_PORT: Opt = Opt::Port {
+    key: "active",
+    label: "Active port",
     default: 20,
 };
 
+pub(super) const DTP_PORT: Opt = Opt::Port {
+    key: "dtp",
+    label: "Passive from",
+    default: 50000,
+};
+
+pub(super) const DTP_PORT_END: Opt = Opt::Port {
+    key: "dtp_end",
+    label: "Passive to",
+    default: 50019,
+};
+
+fn passive_range(opts: &Options) -> (u16, u16) {
+    let start = opts.port("dtp");
+    (start, opts.port("dtp_end").max(start))
+}
+
 pub(super) fn config(ctx: &ServeCtx) -> FtpServerConfig {
+    let (pasv_port_start, pasv_port_end) = passive_range(&ctx.opts);
     FtpServerConfig {
         bind_addr: ctx.bind,
         control_port: ctx.opts.port("port"),
-        pasv_port_start: ctx.opts.port("dtp"),
-        pasv_port_end: ctx.opts.port("dtp"),
+        pasv_port_start,
+        pasv_port_end,
+        active_port: ctx.opts.port("active"),
         root_dir: ctx.root.clone(),
         users: ctx.users.clone(),
     }
@@ -55,7 +74,10 @@ fn strip_verb<'a>(line: &'a str, verb: &str) -> Option<&'a str> {
 }
 
 pub(super) fn ports(opts: &Options) -> Vec<u16> {
-    vec![opts.port("port"), opts.port("dtp")]
+    let (start, end) = passive_range(opts);
+    let mut ports = vec![opts.port("port"), opts.port("active")];
+    ports.extend(start..=end);
+    ports
 }
 
 impl Spec for Ftp {
@@ -76,7 +98,7 @@ impl Spec for Ftp {
     }
 
     fn options(&self) -> &'static [Opt] {
-        &[PI_PORT, DTP_PORT]
+        &[PI_PORT, ACTIVE_PORT, DTP_PORT, DTP_PORT_END]
     }
 
     fn capture_ports(&self, opts: &Options) -> Vec<u16> {

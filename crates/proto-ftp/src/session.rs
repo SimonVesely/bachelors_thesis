@@ -29,6 +29,7 @@ pub struct Session {
     pub tls_active: bool,
     pub pbsz_done: bool,
     pub prot_private: bool,
+    pub active_port: u16,
 }
 
 impl Session {
@@ -49,6 +50,7 @@ impl Session {
             tls_active: false,
             pbsz_done: false,
             prot_private: false,
+            active_port: 0,
         }
     }
 
@@ -93,5 +95,10 @@ impl Session {
 
     pub fn virtual_cwd(&self) -> String {
         self.cwd.to_string_lossy().replace('\\', "/")
+    }
+
+    pub fn virtual_path(&self, target: &Path) -> String {
+        let inside = target.strip_prefix(&self.root).unwrap_or(Path::new(""));
+        format!("/{}", inside.to_string_lossy().replace('\\', "/"))
     }
 }

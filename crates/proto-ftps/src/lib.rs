@@ -34,6 +34,7 @@
 //!             control_port: 2121,
 //!             pasv_port_start: 30000,
 //!             pasv_port_end: 30100,
+//!             active_port: 2020,
 //!             root_dir: PathBuf::from("./ftp_root"),
 //!             users: None,
 //!         },

@@ -1,7 +1,7 @@
 use proto_core::{MessageEvent, Protocol};
 use proto_ftps::{FtpsMode, FtpsServerConfig};
 
-use super::ftp::{DTP_PORT, PI_PORT, config, ports, track_login};
+use super::ftp::{ACTIVE_PORT, DTP_PORT, DTP_PORT_END, PI_PORT, config, ports, track_login};
 use super::{Opt, Options, ServeCtx, ServeFuture, Spec};
 use crate::components::ClientInfo;
 
@@ -36,7 +36,9 @@ impl Spec for Ftps {
                 default: "explicit",
             },
             PI_PORT,
+            ACTIVE_PORT,
             DTP_PORT,
+            DTP_PORT_END,
         ]
     }
 

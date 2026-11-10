@@ -1,13 +1,14 @@
 use std::io;
 use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::fs;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufReader};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::sync::broadcast;
+use tokio::time::{Instant, timeout, timeout_at};
 
 use proto_core::{Direction, EventKind, EventSender, MessageEvent, Protocol, UserDb};
 
@@ -26,9 +27,12 @@ const FEATURES: &[&str] = &[
     "HOST",
 ];
 
-pub struct PassiveRange {
-    pub start: u16,
-    pub end: u16,
+const DATA_TIMEOUT: Duration = Duration::from_secs(30);
+
+pub struct DataPorts {
+    pub passive_start: u16,
+    pub passive_end: u16,
+    pub active: u16,
 }
 
 #[derive(Clone, Copy)]
@@ -41,22 +45,26 @@ struct Endpoints {
 }
 
 enum TransferError {
+    Connect,
     TlsNegotiation,
     Protection,
-    Io,
+    Aborted,
+    LocalFile,
 }
 
-impl From<io::Error> for TransferError {
-    fn from(_: io::Error) -> Self {
-        TransferError::Io
-    }
-}
-
-fn failure_reply(err: &TransferError, io_reply: &'static str) -> &'static str {
-    match err {
-        TransferError::TlsNegotiation => "522 TLS negotiation on the data connection failed.\r\n",
-        TransferError::Protection => "535 Data protection failed during the transfer.\r\n",
-        TransferError::Io => io_reply,
+impl TransferError {
+    fn reply(&self) -> &'static str {
+        match self {
+            TransferError::Connect => "425 Can't open data connection.\r\n",
+            TransferError::TlsNegotiation => {
+                "522 TLS negotiation on the data connection failed.\r\n"
+            }
+            TransferError::Protection => "535 Data protection failed during the transfer.\r\n",
+            TransferError::Aborted => "426 Connection closed; transfer aborted.\r\n",
+            TransferError::LocalFile => {
+                "451 Requested action aborted: local error in processing.\r\n"
+            }
+        }
     }
 }
 
@@ -64,8 +72,25 @@ fn classify(err: io::Error, encrypted: bool) -> TransferError {
     if encrypted && err.kind() == io::ErrorKind::InvalidData {
         TransferError::Protection
     } else {
-        TransferError::Io
+        TransferError::Aborted
     }
+}
+
+#[derive(Clone, Copy)]
+enum ListFormat {
+    Long,
+    Names,
+    Facts,
+}
+
+enum Transfer {
+    Listing(String),
+    Download(fs::File),
+    Upload {
+        path: PathBuf,
+        append: bool,
+        offset: u64,
+    },
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -75,7 +100,7 @@ pub async fn handle_client<S>(
     local: SocketAddr,
     users: Option<Arc<UserDb>>,
     root: PathBuf,
-    pasv_range: PassiveRange,
+    ports: DataPorts,
     events: EventSender,
     mut shutdown: broadcast::Receiver<()>,
     protocol: Protocol,
@@ -94,6 +119,7 @@ where
         session: session_id,
     };
     let mut session = Session::new(session_id, root, protocol, tls.clone());
+    session.active_port = ports.active;
     let mut stream: BoxedStream = Box::new(stream);
 
     emit(
@@ -138,11 +164,11 @@ where
     };
     send(&mut writer, ep, &events, banner).await?;
 
-    let mut line = String::new();
+    let mut raw = Vec::new();
     loop {
-        line.clear();
+        raw.clear();
         tokio::select! {
-            result = reader.read_line(&mut line) => {
+            result = reader.read_until(b'\n', &mut raw) => {
                 if result? == 0 {
                     break;
                 }
@@ -152,6 +178,7 @@ where
                 break;
             }
         }
+        let line = decode_line(&raw);
         log_incoming(ep, &events, &line);
 
         let cmd = Command::parse(&line);
@@ -193,6 +220,7 @@ where
 
         match cmd {
             Command::User(name) => {
+                session.authenticated = false;
                 session.username = Some(name.clone());
                 send(
                     &mut writer,
@@ -203,6 +231,10 @@ where
                 .await?;
             }
             Command::Pass(password) => {
+                if session.authenticated {
+                    send(&mut writer, ep, &events, "503 Already logged in.\r\n").await?;
+                    continue;
+                }
                 let Some(name) = session.username.clone() else {
                     send(&mut writer, ep, &events, "503 Login with USER first.\r\n").await?;
                     continue;
@@ -256,14 +288,7 @@ where
             Command::Cwd(arg) => {
                 let target = session.resolve(&arg);
                 if target.is_dir() {
-                    session.cwd = PathBuf::from(
-                        "/".to_string()
-                            + target
-                                .strip_prefix(&session.root)
-                                .unwrap()
-                                .to_string_lossy()
-                                .as_ref(),
-                    );
+                    session.cwd = PathBuf::from(session.virtual_path(&target));
                     send(&mut writer, ep, &events, "250 Directory changed.\r\n").await?;
                 } else {
                     send(&mut writer, ep, &events, "550 No such directory.\r\n").await?;
@@ -271,23 +296,29 @@ where
             }
             Command::Cdup => {
                 let target = session.resolve("..");
-                session.cwd = PathBuf::from(
-                    "/".to_string()
-                        + target
-                            .strip_prefix(&session.root)
-                            .unwrap()
-                            .to_string_lossy()
-                            .as_ref(),
-                );
+                session.cwd = PathBuf::from(session.virtual_path(&target));
                 send(&mut writer, ep, &events, "250 Directory changed.\r\n").await?;
             }
             Command::Type(t) => {
-                session.binary = t.eq_ignore_ascii_case("I");
-                send(&mut writer, ep, &events, "200 Type set.\r\n").await?;
+                let parts: Vec<String> =
+                    t.split_whitespace().map(str::to_ascii_uppercase).collect();
+                let parts: Vec<&str> = parts.iter().map(String::as_str).collect();
+                let reply = match parts.as_slice() {
+                    ["I"] | ["L", "8"] => {
+                        session.binary = true;
+                        "200 Type set to I.\r\n"
+                    }
+                    ["A"] | ["A", "N"] => {
+                        session.binary = false;
+                        "200 Type set to A.\r\n"
+                    }
+                    _ => "504 Type not supported.\r\n",
+                };
+                send(&mut writer, ep, &events, reply).await?;
             }
             Command::Pasv => {
                 session.data_channel = DataChannel::None;
-                match open_passive(local.ip(), &pasv_range).await {
+                match open_passive(local.ip(), &ports).await {
                     Ok((listener, port)) => {
                         session.data_channel = DataChannel::Passive(listener);
                         let ip = match local.ip() {
@@ -317,55 +348,38 @@ where
                 }
             }
             Command::Port(arg) => {
-                if let Some(addr) = parse_port_arg(&arg) {
-                    session.data_channel = DataChannel::Active(addr);
-                    send(&mut writer, ep, &events, "200 PORT command successful.\r\n").await?;
-                } else {
-                    send(&mut writer, ep, &events, "501 Malformed PORT argument.\r\n").await?;
-                }
+                let reply = match parse_port_arg(&arg) {
+                    None => "501 Malformed PORT argument.\r\n",
+                    Some(addr) if addr.ip() != peer.ip() || addr.port() < 1024 => {
+                        "500 Illegal PORT command - use your own address and a port from 1024.\r\n"
+                    }
+                    Some(addr) => {
+                        session.data_channel = DataChannel::Active(addr);
+                        "200 PORT command successful.\r\n"
+                    }
+                };
+                send(&mut writer, ep, &events, reply).await?;
             }
-            Command::List(path) | Command::Nlst(path) => {
-                let dir = session.resolve(path.as_deref().unwrap_or("."));
-                send(
-                    &mut writer,
-                    ep,
-                    &events,
-                    "150 Opening data connection for directory listing.\r\n",
-                )
-                .await?;
-                match send_listing(&mut session, &events, &dir, false).await {
-                    Ok(_) => send(&mut writer, ep, &events, "226 Transfer complete.\r\n").await?,
-                    Err(e) => {
-                        send(
+            Command::List(ref arg) | Command::Nlst(ref arg) | Command::Mlsd(ref arg) => {
+                let format = match cmd {
+                    Command::Nlst(_) => ListFormat::Names,
+                    Command::Mlsd(_) => ListFormat::Facts,
+                    _ => ListFormat::Long,
+                };
+                let target = session.resolve(list_path(arg.as_deref()));
+                match build_listing(&target, format).await {
+                    Ok(body) => {
+                        run_transfer(
+                            &mut session,
+                            &events,
                             &mut writer,
                             ep,
-                            &events,
-                            failure_reply(&e, "451 Failed to list directory.\r\n"),
+                            "150 Opening data connection for directory listing.\r\n",
+                            Transfer::Listing(body),
                         )
                         .await?
                     }
-                }
-            }
-            Command::Mlsd(path) => {
-                let dir = session.resolve(path.as_deref().unwrap_or("."));
-                send(
-                    &mut writer,
-                    ep,
-                    &events,
-                    "150 Opening data connection (MLSD).\r\n",
-                )
-                .await?;
-                match send_listing(&mut session, &events, &dir, true).await {
-                    Ok(_) => send(&mut writer, ep, &events, "226 Transfer complete.\r\n").await?,
-                    Err(e) => {
-                        send(
-                            &mut writer,
-                            ep,
-                            &events,
-                            failure_reply(&e, "451 Failed to list directory.\r\n"),
-                        )
-                        .await?
-                    }
+                    Err(reply) => send(&mut writer, ep, &events, reply).await?,
                 }
             }
             Command::Mlst(path) => {
@@ -394,48 +408,44 @@ where
             }
             Command::Retr(path) => {
                 let target = session.resolve(&path);
-                send(
-                    &mut writer,
-                    ep,
-                    &events,
-                    "150 Opening data connection for RETR.\r\n",
-                )
-                .await?;
-                match send_file(&mut session, &events, &target).await {
-                    Ok(_) => send(&mut writer, ep, &events, "226 Transfer complete.\r\n").await?,
-                    Err(e) => {
-                        send(
+                let offset = std::mem::take(&mut session.rest_offset);
+                match open_download(&target, offset).await {
+                    Ok(file) => {
+                        run_transfer(
+                            &mut session,
+                            &events,
                             &mut writer,
                             ep,
-                            &events,
-                            failure_reply(&e, "550 Failed to open file.\r\n"),
+                            "150 Opening data connection for RETR.\r\n",
+                            Transfer::Download(file),
                         )
                         .await?
                     }
+                    Err(_) => send(&mut writer, ep, &events, "550 File not found.\r\n").await?,
                 }
-                session.rest_offset = 0;
             }
             Command::Stor(ref path) | Command::Appe(ref path) => {
                 let target = session.resolve(path);
                 let append = matches!(cmd, Command::Appe(_));
-                send(
-                    &mut writer,
-                    ep,
-                    &events,
-                    "150 Opening data connection for upload.\r\n",
-                )
-                .await?;
-                match receive_file(&mut session, &events, &target, append).await {
-                    Ok(_) => send(&mut writer, ep, &events, "226 Transfer complete.\r\n").await?,
-                    Err(e) => {
-                        send(
-                            &mut writer,
-                            ep,
-                            &events,
-                            failure_reply(&e, "550 Failed to write file.\r\n"),
-                        )
-                        .await?
-                    }
+                let offset = std::mem::take(&mut session.rest_offset);
+                let parent_ok = target.parent().is_some_and(Path::is_dir);
+                if target == session.root || target.is_dir() || !parent_ok {
+                    send(&mut writer, ep, &events, "553 File name not allowed.\r\n").await?;
+                } else {
+                    let upload = Transfer::Upload {
+                        path: target,
+                        append,
+                        offset,
+                    };
+                    run_transfer(
+                        &mut session,
+                        &events,
+                        &mut writer,
+                        ep,
+                        "150 Opening data connection for upload.\r\n",
+                        upload,
+                    )
+                    .await?;
                 }
             }
             Command::Dele(path) => {
@@ -449,11 +459,12 @@ where
                 let target = session.resolve(&path);
                 match fs::create_dir(&target).await {
                     Ok(_) => {
+                        let created = session.virtual_path(&target).replace('"', "\"\"");
                         send(
                             &mut writer,
                             ep,
                             &events,
-                            &format!("257 \"{path}\" created.\r\n"),
+                            &format!("257 \"{created}\" created.\r\n"),
                         )
                         .await?
                     }
@@ -464,16 +475,25 @@ where
             }
             Command::Rmd(path) => {
                 let target = session.resolve(&path);
-                match fs::remove_dir(&target).await {
-                    Ok(_) => send(&mut writer, ep, &events, "250 Directory removed.\r\n").await?,
-                    Err(_) => {
-                        send(&mut writer, ep, &events, "550 Remove directory failed.\r\n").await?
-                    }
-                }
+                let removed = match target == session.root {
+                    true => false,
+                    false => fs::remove_dir(&target).await.is_ok(),
+                };
+                let reply = match removed {
+                    true => "250 Directory removed.\r\n",
+                    false => "550 Remove directory failed.\r\n",
+                };
+                send(&mut writer, ep, &events, reply).await?;
             }
             Command::Rnfr(path) => {
-                session.rename_from = Some(session.resolve(&path));
-                send(&mut writer, ep, &events, "350 Ready for RNTO.\r\n").await?;
+                let target = session.resolve(&path);
+                if target != session.root && fs::metadata(&target).await.is_ok() {
+                    session.rename_from = Some(target);
+                    send(&mut writer, ep, &events, "350 Ready for RNTO.\r\n").await?;
+                } else {
+                    session.rename_from = None;
+                    send(&mut writer, ep, &events, "550 File not found.\r\n").await?;
+                }
             }
             Command::Rnto(path) => {
                 if let Some(from) = session.rename_from.take() {
@@ -725,8 +745,159 @@ where
     Ok(())
 }
 
-async fn open_passive(bind_addr: IpAddr, range: &PassiveRange) -> io::Result<(TcpListener, u16)> {
-    for port in range.start..=range.end {
+fn decode_line(raw: &[u8]) -> String {
+    let mut bytes = Vec::with_capacity(raw.len());
+    let mut iter = raw.iter();
+    while let Some(&byte) = iter.next() {
+        match byte {
+            0xFF => {
+                iter.next();
+            }
+            _ => bytes.push(byte),
+        }
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+fn list_path(arg: Option<&str>) -> &str {
+    let mut rest = arg.unwrap_or_default().trim_start();
+    while rest.starts_with('-') {
+        rest = rest
+            .split_once(' ')
+            .map_or("", |(_, path)| path)
+            .trim_start();
+    }
+    match rest {
+        "" => ".",
+        path => path,
+    }
+}
+
+async fn build_listing(target: &Path, format: ListFormat) -> Result<String, &'static str> {
+    let meta = fs::metadata(target)
+        .await
+        .map_err(|_| "550 No such file or directory.\r\n")?;
+    let mut entries = Vec::new();
+    if meta.is_dir() {
+        let mut dir = fs::read_dir(target)
+            .await
+            .map_err(|_| "550 Failed to list directory.\r\n")?;
+        while let Ok(Some(entry)) = dir.next_entry().await {
+            if let Ok(meta) = entry.metadata().await {
+                entries.push((entry.file_name().to_string_lossy().into_owned(), meta));
+            }
+        }
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+    } else if matches!(format, ListFormat::Facts) {
+        return Err("501 MLSD needs a directory.\r\n");
+    } else {
+        let name = target
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        entries.push((name, meta));
+    }
+    let mut out = String::new();
+    for (name, meta) in entries {
+        let line = match format {
+            ListFormat::Long => format_list_line(&name, &meta),
+            ListFormat::Names => name,
+            ListFormat::Facts => format!("{} {name}", format_mlsx_facts(&meta)),
+        };
+        out.push_str(&line);
+        out.push_str("\r\n");
+    }
+    Ok(out)
+}
+
+async fn open_download(target: &Path, offset: u64) -> io::Result<fs::File> {
+    if !fs::metadata(target).await?.is_file() {
+        return Err(io::ErrorKind::InvalidInput.into());
+    }
+    let mut file = fs::File::open(target).await?;
+    if offset > 0 {
+        file.seek(io::SeekFrom::Start(offset)).await?;
+    }
+    Ok(file)
+}
+
+async fn open_upload(path: &Path, append: bool, offset: u64) -> io::Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.create(true);
+    match append {
+        true => options.append(true),
+        false => options.write(true).truncate(offset == 0),
+    };
+    let mut file = options.open(path).await?;
+    if !append && offset > 0 {
+        file.seek(io::SeekFrom::Start(offset)).await?;
+    }
+    Ok(file)
+}
+
+async fn run_transfer<W>(
+    session: &mut Session,
+    events: &EventSender,
+    writer: &mut W,
+    control: Endpoints,
+    opening: &str,
+    transfer: Transfer,
+) -> io::Result<()>
+where
+    W: AsyncWriteExt + Unpin,
+{
+    if matches!(session.data_channel, DataChannel::None) {
+        return send(writer, control, events, "425 Use PORT or PASV first.\r\n").await;
+    }
+    send(writer, control, events, opening).await?;
+    let reply = match open_data_connection(session, events, control).await {
+        Err(err) => err.reply(),
+        Ok((mut data, ep)) => {
+            let (direction, result) = match transfer {
+                Transfer::Listing(body) => (
+                    Direction::ServerToClient,
+                    send_listing(&mut data, events, ep, body).await,
+                ),
+                Transfer::Download(mut file) => (
+                    Direction::ServerToClient,
+                    send_file(&mut data, events, ep, &mut file).await,
+                ),
+                Transfer::Upload {
+                    path,
+                    append,
+                    offset,
+                } => (
+                    Direction::ClientToServer,
+                    receive_file(&mut data, events, ep, &path, append, offset).await,
+                ),
+            };
+            data.shutdown().await.ok();
+            emit_close(events, ep, direction);
+            match result {
+                Ok(()) => "226 Transfer complete.\r\n",
+                Err(err) => err.reply(),
+            }
+        }
+    };
+    send(writer, control, events, reply).await
+}
+
+async fn connect_active(local: IpAddr, port: u16, client: SocketAddr) -> io::Result<TcpStream> {
+    let socket = match client {
+        SocketAddr::V4(_) => TcpSocket::new_v4()?,
+        SocketAddr::V6(_) => TcpSocket::new_v6()?,
+    };
+    socket.set_reuseaddr(true)?;
+    #[cfg(unix)]
+    socket.set_reuseport(true)?;
+    if port != 0 {
+        let _ = socket.bind(SocketAddr::new(local, port));
+    }
+    socket.connect(client).await
+}
+
+async fn open_passive(bind_addr: IpAddr, ports: &DataPorts) -> io::Result<(TcpListener, u16)> {
+    for port in ports.passive_start..=ports.passive_end.max(ports.passive_start) {
         if let Ok(listener) = TcpListener::bind((bind_addr, port)).await {
             return Ok((listener, port));
         }
@@ -738,21 +909,15 @@ async fn open_passive(bind_addr: IpAddr, range: &PassiveRange) -> io::Result<(Tc
 }
 
 fn parse_port_arg(arg: &str) -> Option<SocketAddr> {
-    let parts: Vec<u16> = arg
+    let parts: Vec<u8> = arg
         .split(',')
-        .filter_map(|p| p.trim().parse().ok())
-        .collect();
-    if parts.len() != 6 {
+        .map(|p| p.trim().parse().ok())
+        .collect::<Option<_>>()?;
+    let [a, b, c, d, high, low] = parts[..] else {
         return None;
-    }
-    let ip = IpAddr::from([
-        parts[0] as u8,
-        parts[1] as u8,
-        parts[2] as u8,
-        parts[3] as u8,
-    ]);
-    let port = (parts[4] << 8) | parts[5];
-    Some(SocketAddr::new(ip, port))
+    };
+    let port = u16::from_be_bytes([high, low]);
+    Some(SocketAddr::new(IpAddr::from([a, b, c, d]), port))
 }
 
 fn emit(
@@ -794,33 +959,75 @@ fn emit_data(
     );
 }
 
+async fn accept_from(
+    listener: &TcpListener,
+    client: IpAddr,
+    events: &EventSender,
+    control: Endpoints,
+) -> io::Result<TcpStream> {
+    let deadline = Instant::now() + DATA_TIMEOUT;
+    loop {
+        let (tcp, from) = timeout_at(deadline, listener.accept())
+            .await
+            .map_err(|_| io::Error::from(io::ErrorKind::TimedOut))??;
+        if from.ip() == client {
+            return Ok(tcp);
+        }
+        let intruder = Endpoints {
+            peer: from,
+            local: tcp.local_addr()?,
+            ..control
+        };
+        emit(
+            events,
+            intruder,
+            EventKind::TcpClose,
+            Direction::ServerToClient,
+            Vec::new(),
+            format!("Data connection from {from} refused - only {client} may use this port"),
+        );
+    }
+}
+
 async fn open_data_connection(
     session: &mut Session,
     events: &EventSender,
+    control: Endpoints,
 ) -> Result<(BoxedStream, Endpoints), TransferError> {
-    let channel = std::mem::replace(&mut session.data_channel, DataChannel::None);
-    let (tcp, opener) = match channel {
-        DataChannel::Passive(listener) => (listener.accept().await?.0, Direction::ClientToServer),
-        DataChannel::Active(addr) => (TcpStream::connect(addr).await?, Direction::ServerToClient),
-        DataChannel::None => {
-            return Err(io::Error::new(io::ErrorKind::NotConnected, "no PASV/PORT issued").into());
-        }
-    };
-    let mut ep = Endpoints {
-        peer: tcp.peer_addr()?,
-        local: tcp.local_addr()?,
-        protocol: session.protocol,
+    let client = control.peer.ip();
+    let control = Endpoints {
         encrypted: false,
-        session: session.id,
+        ..control
     };
-    emit(
-        events,
-        ep,
-        EventKind::TcpOpen,
-        opener,
-        Vec::new(),
-        "TCP handshake complete (SYN, SYN-ACK, ACK) - data connection established",
-    );
+    let channel = std::mem::replace(&mut session.data_channel, DataChannel::None);
+    let connected = match channel {
+        DataChannel::Passive(listener) => accept_from(&listener, client, events, control)
+            .await
+            .map(|tcp| (tcp, Direction::ClientToServer)),
+        DataChannel::Active(addr) => {
+            let connect = connect_active(control.local.ip(), session.active_port, addr);
+            match timeout(DATA_TIMEOUT, connect).await {
+                Ok(result) => result.map(|tcp| (tcp, Direction::ServerToClient)),
+                Err(_) => Err(io::ErrorKind::TimedOut.into()),
+            }
+        }
+        DataChannel::None => Err(io::ErrorKind::NotConnected.into()),
+    };
+    let (tcp, opener) = connected.map_err(|_| TransferError::Connect)?;
+    let mut ep = Endpoints {
+        peer: tcp.peer_addr().map_err(|_| TransferError::Connect)?,
+        local: tcp.local_addr().map_err(|_| TransferError::Connect)?,
+        ..control
+    };
+    let mut text =
+        "TCP handshake complete (SYN, SYN-ACK, ACK) - data connection established".to_string();
+    if opener == Direction::ServerToClient {
+        text += &format!(" (active mode, from port {})", ep.local.port());
+        if session.active_port != 0 && ep.local.port() != session.active_port {
+            text += &format!(" - port {} is not available", session.active_port);
+        }
+    }
+    emit(events, ep, EventKind::TcpOpen, opener, Vec::new(), text);
 
     let mut data: BoxedStream = Box::new(tcp);
     if session.prot_private {
@@ -856,54 +1063,34 @@ fn emit_close(events: &EventSender, ep: Endpoints, direction: Direction) {
 }
 
 async fn send_listing(
-    session: &mut Session,
+    data: &mut BoxedStream,
     events: &EventSender,
-    dir: &PathBuf,
-    machine_readable: bool,
+    ep: Endpoints,
+    body: String,
 ) -> Result<(), TransferError> {
-    let (mut data, ep) = open_data_connection(session, events).await?;
-    let mut entries = fs::read_dir(dir).await?;
-    let mut out = String::new();
-    while let Some(entry) = entries.next_entry().await? {
-        let meta = entry.metadata().await?;
-        let name = entry.file_name().to_string_lossy().to_string();
-        if machine_readable {
-            out.push_str(&format!("{} {name}\r\n", format_mlsx_facts(&meta)));
-        } else {
-            out.push_str(&format_list_line(&name, &meta));
-            out.push_str("\r\n");
-        }
-    }
-    data.write_all(out.as_bytes())
+    data.write_all(body.as_bytes())
         .await
         .map_err(|e| classify(e, ep.encrypted))?;
-    data.shutdown().await.ok();
     emit(
         events,
         ep,
         EventKind::Data,
         Direction::ServerToClient,
-        out.as_bytes().to_vec(),
-        format!("Directory listing ({} bytes)", out.len()),
+        body.as_bytes().to_vec(),
+        format!("Directory listing ({} bytes)", body.len()),
     );
-    emit_close(events, ep, Direction::ServerToClient);
     Ok(())
 }
 
 async fn send_file(
-    session: &mut Session,
+    data: &mut BoxedStream,
     events: &EventSender,
-    path: &PathBuf,
+    ep: Endpoints,
+    file: &mut fs::File,
 ) -> Result<(), TransferError> {
-    let mut file = fs::File::open(path).await?;
-    if session.rest_offset > 0 {
-        file.seek(io::SeekFrom::Start(session.rest_offset)).await?;
-    }
-    let (mut data, ep) = open_data_connection(session, events).await?;
-    let bytes = tokio::io::copy(&mut file, &mut data)
+    let bytes = tokio::io::copy(file, data)
         .await
         .map_err(|e| classify(e, ep.encrypted))?;
-    data.shutdown().await.ok();
     emit_data(
         events,
         ep,
@@ -911,31 +1098,24 @@ async fn send_file(
         bytes as usize,
         format!("File data sent ({bytes} bytes)"),
     );
-    emit_close(events, ep, Direction::ServerToClient);
     Ok(())
 }
 
 async fn receive_file(
-    session: &mut Session,
+    data: &mut BoxedStream,
     events: &EventSender,
-    path: &PathBuf,
+    ep: Endpoints,
+    path: &Path,
     append: bool,
+    offset: u64,
 ) -> Result<(), TransferError> {
-    let mut file = if append {
-        fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .await?
-    } else {
-        fs::File::create(path).await?
-    };
-    let (mut data, ep) = open_data_connection(session, events).await?;
-    let bytes = copy_until_eof(&mut data, &mut file)
+    let mut file = open_upload(path, append, offset)
+        .await
+        .map_err(|_| TransferError::LocalFile)?;
+    let bytes = copy_until_eof(data, &mut file)
         .await
         .map_err(|e| classify(e, ep.encrypted))?;
-    data.shutdown().await.ok();
-    file.flush().await?;
+    file.flush().await.map_err(|_| TransferError::LocalFile)?;
     emit_data(
         events,
         ep,
@@ -943,7 +1123,6 @@ async fn receive_file(
         bytes as usize,
         format!("File data received ({bytes} bytes)"),
     );
-    emit_close(events, ep, Direction::ClientToServer);
     Ok(())
 }
 
