@@ -1,10 +1,13 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use dioxus::prelude::*;
-use proto_core::{EventKind, MessageEvent};
+use proto_core::{Direction, EventKind, MessageEvent};
 
 use crate::protocols::{Proto, Rows};
 
 struct DetailView {
     frame_title: String,
+    relative: String,
     timestamp: String,
     length: String,
     kind: String,
@@ -22,11 +25,35 @@ struct DetailView {
     app_rows: Rows,
 }
 
-fn build_view(idx: usize, e: &MessageEvent) -> DetailView {
-    let timestamp = match e.timestamp.duration_since(std::time::UNIX_EPOCH) {
+fn kind_name(kind: EventKind) -> &'static str {
+    match kind {
+        EventKind::Message => "Command / reply",
+        EventKind::Data => "File data",
+        EventKind::TcpOpen => "TCP connection opened",
+        EventKind::TcpClose => "TCP connection closed",
+        EventKind::Tls => "TLS handshake",
+    }
+}
+
+fn direction_name(direction: Direction) -> &'static str {
+    match direction {
+        Direction::ClientToServer => "Client \u{2192} server",
+        Direction::ServerToClient => "Server \u{2192} client",
+    }
+}
+
+fn build_view(idx: usize, e: &MessageEvent, t0: SystemTime) -> DetailView {
+    let timestamp = match e.timestamp.duration_since(UNIX_EPOCH) {
         Ok(d) => format!("{:.6}", d.as_secs_f64()),
         Err(_) => "unknown".to_string(),
     };
+    let relative = format!(
+        "{:.6} s",
+        e.timestamp
+            .duration_since(t0)
+            .unwrap_or_default()
+            .as_secs_f64()
+    );
     let info = e.parsed.clone().unwrap_or_default();
 
     let spec = Proto::of(e.protocol).spec();
@@ -50,10 +77,11 @@ fn build_view(idx: usize, e: &MessageEvent) -> DetailView {
 
     DetailView {
         frame_title: format!("Frame {}: {} bytes", idx + 1, e.length),
+        relative,
         timestamp,
         length: format!("{} bytes", e.length),
-        kind: format!("{:?}", e.kind),
-        direction: format!("{:?}", e.direction),
+        kind: kind_name(e.kind).to_string(),
+        direction: direction_name(e.direction).to_string(),
         peer: e.peer.to_string(),
         local: e.local.to_string(),
         protocol_title: spec.app_title(e),
@@ -75,7 +103,11 @@ fn build_view(idx: usize, e: &MessageEvent) -> DetailView {
 #[component]
 pub fn PacketDetail(logs: Signal<Vec<MessageEvent>>, selected: Signal<Option<usize>>) -> Element {
     let idx = selected();
-    let view = idx.and_then(|i| logs.read().get(i).map(|e| build_view(i, e)));
+    let view = idx.and_then(|i| {
+        let all = logs.read();
+        let t0 = all.first().map_or(UNIX_EPOCH, |e| e.timestamp);
+        all.get(i).map(|e| build_view(i, e, t0))
+    });
 
     let mut frame_open = use_signal(|| true);
     let mut transport_open = use_signal(|| true);
@@ -97,7 +129,8 @@ pub fn PacketDetail(logs: Signal<Vec<MessageEvent>>, selected: Signal<Option<usi
                             }
                             if frame_open() {
                                 div { class: "detail-section__body",
-                                    div { class: "detail-row", span { class: "detail-row__label", "Timestamp" } span { class: "detail-row__value", "{v.timestamp}" } }
+                                    div { class: "detail-row", span { class: "detail-row__label", "Time since first packet" } span { class: "detail-row__value", "{v.relative}" } }
+                                    div { class: "detail-row", span { class: "detail-row__label", "Epoch time" } span { class: "detail-row__value", "{v.timestamp}" } }
                                     div { class: "detail-row", span { class: "detail-row__label", "Frame length" } span { class: "detail-row__value", "{v.length}" } }
                                     div { class: "detail-row", span { class: "detail-row__label", "Kind" } span { class: "detail-row__value", "{v.kind}" } }
                                 }

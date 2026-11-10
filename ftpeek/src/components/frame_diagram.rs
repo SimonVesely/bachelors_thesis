@@ -96,9 +96,8 @@ fn render(p: &Packet, h: &proto_core::capture::Headers) -> Element {
 
     rsx! {
         svg {
+            class: "diagram-svg",
             "viewBox": "0 0 560 {height}",
-            width: "100%",
-            height: "{height}",
 
             text { x: "280", y: "12", "text-anchor": "middle", "font-size": "11", "font-weight": "700", fill: "#16171a", "Encapsulation" }
             for (n, (name, size, fill)) in layers.iter().enumerate() {
@@ -120,7 +119,7 @@ fn render(p: &Packet, h: &proto_core::capture::Headers) -> Element {
                 }
                 text {
                     x: "{LEFT + (*start as f64 + *bits as f64 / 2.0) * BIT}", y: "{GRID_TOP + *row as f64 * ROW + 13.0}",
-                    "text-anchor": "middle", "font-size": "8", "font-weight": "700", fill: "#3a3d42",
+                    "text-anchor": "middle", "font-size": "9", "font-weight": "700", fill: "#3a3d42",
                     "{label}"
                 }
                 text {

@@ -1,3 +1,5 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use dioxus::prelude::*;
 use proto_core::{Direction, EventKind, MessageEvent};
 
@@ -7,14 +9,18 @@ use crate::util::shorten;
 #[component]
 pub fn PacketDiagram(logs: Signal<Vec<MessageEvent>>, selected: Signal<Option<usize>>) -> Element {
     let idx = selected();
-    let entry = idx.and_then(|i| logs.read().get(i).cloned());
+    let entry = idx.and_then(|i| {
+        let all = logs.read();
+        let t0 = all.first().map_or(UNIX_EPOCH, |e| e.timestamp);
+        all.get(i).cloned().map(|e| (e, t0))
+    });
 
     rsx! {
         div { class: "diagram-panel",
             div { class: "diagram-panel__header", "Packet structure" }
             div { class: "diagram-panel__body",
-                if let Some(e) = entry {
-                    { render_diagram(&e) }
+                if let Some((e, t0)) = entry {
+                    { render_diagram(&e, t0) }
                 } else {
                     p { class: "diagram-panel__empty", "Select a packet to see its structure." }
                 }
@@ -23,7 +29,7 @@ pub fn PacketDiagram(logs: Signal<Vec<MessageEvent>>, selected: Signal<Option<us
     }
 }
 
-fn render_diagram(e: &MessageEvent) -> Element {
+fn render_diagram(e: &MessageEvent, t0: SystemTime) -> Element {
     let dir_fill = match e.direction {
         Direction::ClientToServer => "#e08a00",
         Direction::ServerToClient => "#2a8f3f",
@@ -39,10 +45,10 @@ fn render_diagram(e: &MessageEvent) -> Element {
         EventKind::Message => "MESSAGE",
         EventKind::Tls => "TLS HANDSHAKE",
     };
-    let proto_label = format!("{:?}", e.protocol);
     let len_label = format!("{} B", e.length);
 
     let spec = Proto::of(e.protocol).spec();
+    let proto_label = spec.label();
     let channel = spec.channel().name;
     let (sec_label, sec_fill) = match e.kind {
         EventKind::TcpOpen | EventKind::TcpClose => ("N/A (TCP)".to_string(), "#8a8d93"),
@@ -58,10 +64,13 @@ fn render_diagram(e: &MessageEvent) -> Element {
     let src_label = src.to_string();
     let dst_label = dst.to_string();
 
-    let ts_label = match e.timestamp.duration_since(std::time::UNIX_EPOCH) {
-        Ok(d) => format!("{:.3}", d.as_secs_f64()),
-        Err(_) => "unknown".to_string(),
-    };
+    let ts_label = format!(
+        "+{:.3} s",
+        e.timestamp
+            .duration_since(t0)
+            .unwrap_or_default()
+            .as_secs_f64()
+    );
 
     let data_title = match e.encrypted {
         true => format!("DATA (decrypted view - {channel} on the wire)"),
@@ -72,9 +81,8 @@ fn render_diagram(e: &MessageEvent) -> Element {
 
     rsx! {
         svg {
+            class: "diagram-svg",
             "viewBox": "0 0 560 240",
-            width: "100%",
-            height: "240",
 
             defs {
                 marker {

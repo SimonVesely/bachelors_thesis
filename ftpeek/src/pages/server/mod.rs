@@ -1,7 +1,7 @@
 mod capture;
 mod control_bar;
 
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 
 use dioxus::prelude::*;
@@ -19,12 +19,18 @@ use crate::{AppState, Route};
 use capture::use_capture;
 use control_bar::ControlBar;
 
+fn default_root() -> String {
+    directories::UserDirs::new()
+        .map(|dirs| dirs.home_dir().join("FTPeek").display().to_string())
+        .unwrap_or_else(|| "shared".to_string())
+}
+
 #[component]
 pub fn Status(mode: String, protocol: Proto) -> Element {
     let state = use_context::<AppState>();
     let spec = protocol.spec();
 
-    let root_dir = use_signal(|| "shared".to_string());
+    let root_dir = use_signal(default_root);
     let options = use_signal(|| Options::defaults(spec));
     let mut running = use_signal(|| false);
     let mut logs = use_signal(Vec::<MessageEvent>::new);
@@ -40,12 +46,11 @@ pub fn Status(mode: String, protocol: Proto) -> Element {
 
     let start_server = move |_| {
         let bind_ip: IpAddr = state
-            .interfaces
+            .selected_interface
             .read()
-            .iter()
-            .find(|iface| Some(iface.ip.to_string()) == *state.selected_interface.read())
-            .map(|iface| iface.ip)
-            .unwrap_or(IpAddr::from([0, 0, 0, 0]));
+            .as_deref()
+            .and_then(|ip| ip.parse().ok())
+            .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
 
         let root = PathBuf::from(root_dir.read().clone());
         if let Err(err) = std::fs::create_dir_all(&root) {
@@ -135,29 +140,25 @@ pub fn Status(mode: String, protocol: Proto) -> Element {
                 on_start: start_server,
                 on_stop: stop_server,
             }
-            div { class: "status-grid status-grid--wide",
-                div { class: "status-grid__cell status-grid__cell--log",
+            div { class: "status-grid",
+                div { class: "pane pane--log",
                     PacketLog { logs, packets, wire, selected, clients, filter, decrypt, can_decrypt: spec.can_decrypt() && wire() }
                 }
-                div { class: "status-grid__cell status-grid__cell--split",
-                    div { class: "status-grid__sub status-grid__sub--row",
-                        div { class: "status-grid__sub status-grid__sub--detail",
-                            if wire() {
-                                FrameDetail { packets, selected, decrypt }
-                            } else {
-                                PacketDetail { logs, selected }
-                            }
-                        }
-                        div { class: "status-grid__sub status-grid__sub--dir",
-                            DirectoryPreview { root_dir, logs }
-                        }
+                div { class: "pane pane--detail",
+                    if wire() {
+                        FrameDetail { packets, selected, decrypt }
+                    } else {
+                        PacketDetail { logs, selected }
                     }
-                    div { class: "status-grid__sub",
-                        if wire() {
-                            FrameDiagram { packets, selected }
-                        } else {
-                            PacketDiagram { logs, selected }
-                        }
+                }
+                div { class: "pane pane--dir",
+                    DirectoryPreview { root_dir, logs }
+                }
+                div { class: "pane pane--diagram",
+                    if wire() {
+                        FrameDiagram { packets, selected }
+                    } else {
+                        PacketDiagram { logs, selected }
                     }
                 }
             }

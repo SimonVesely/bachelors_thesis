@@ -17,7 +17,7 @@ impl Spec for Ftps {
     }
 
     fn description(&self) -> &'static str {
-        "FTP over TLS (explicit AUTH TLS)"
+        "FTP over TLS (explicit AUTH TLS or implicit)"
     }
 
     fn core(&self) -> Protocol {

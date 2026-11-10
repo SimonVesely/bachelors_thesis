@@ -3,6 +3,7 @@ use dioxus::prelude::*;
 use super::capture::CaptureState;
 use crate::components::{ClientInfo, ClientList, OptionField};
 use crate::protocols::{Opt, Options, Proto};
+use crate::util::plural;
 use crate::{AppState, Route};
 
 #[component]
@@ -29,21 +30,20 @@ pub fn ControlBar(
     } else if (state.anonymous)() {
         "anonymous".to_string()
     } else {
-        format!("{} user(s)", state.user_names.read().len())
+        plural(state.user_names.read().len(), "user")
     };
-    let iface_label = state
-        .selected_interface
+
+    let selected_ip = state.selected_interface.read().clone().unwrap_or_default();
+    let iface_label = match state
+        .interfaces
         .read()
-        .as_ref()
-        .and_then(|ip| {
-            state
-                .interfaces
-                .read()
-                .iter()
-                .find(|i| &i.ip.to_string() == ip)
-                .map(|i| format!("{} \u{00b7} {}", i.name, i.ip))
-        })
-        .unwrap_or_else(|| "all interfaces \u{00b7} 0.0.0.0".to_string());
+        .iter()
+        .find(|i| i.ip.to_string() == selected_ip)
+    {
+        Some(i) => format!("{} \u{00b7} {}", i.name, i.ip),
+        None if selected_ip == "127.0.0.1" => "loopback \u{00b7} 127.0.0.1".to_string(),
+        None => "all interfaces \u{00b7} 0.0.0.0".to_string(),
+    };
 
     let title = spec.title(&options.read());
     let choices = spec

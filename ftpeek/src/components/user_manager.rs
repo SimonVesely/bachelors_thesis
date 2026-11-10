@@ -50,6 +50,7 @@ pub fn UserManager(on_close: EventHandler<()>) -> Element {
     let mut new_confirm = use_signal(String::new);
     let mut error_msg = use_signal(|| None::<String>);
     let mut form_generation = use_signal(|| 0u32);
+    let mut pending_delete = use_signal(|| None::<String>);
 
     let add_user = use_callback(move |_: ()| {
         let store = match &*state.users.read() {
@@ -78,6 +79,12 @@ pub fn UserManager(on_close: EventHandler<()>) -> Element {
         }
     });
 
+    let submit_on_enter = move |e: KeyboardEvent| {
+        if e.key() == Key::Enter {
+            add_user.call(());
+        }
+    };
+
     let names = state.user_names.read().clone();
     let db_path = match &*state.users.read() {
         Ok(store) => Some(store.path.display().to_string()),
@@ -89,14 +96,18 @@ pub fn UserManager(on_close: EventHandler<()>) -> Element {
         div {
             class: "info-backdrop info-backdrop--top",
             onclick: move |_| on_close.call(()),
+            onkeydown: move |e| {
+                if e.key() == Key::Escape {
+                    on_close.call(());
+                }
+            },
             div {
                 class: "info-modal users-modal",
-                onclick: move |e| e.stop_propagation(),
-                onkeydown: move |e| {
-                    if e.key() == Key::Escape {
-                        on_close.call(());
-                    }
+                tabindex: "-1",
+                onmounted: move |e| async move {
+                    let _ = e.set_focus(true).await;
                 },
+                onclick: move |e| e.stop_propagation(),
 
                 div { class: "info-modal__header",
                     h3 { class: "info-modal__title", "User database" }
@@ -127,21 +138,33 @@ pub fn UserManager(on_close: EventHandler<()>) -> Element {
                             div { key: "{name}", class: "users-table__row",
                                 span { class: "users-table__name", "{name}" }
                                 span { class: "users-table__mask", "{PASSWORD_MASK}" }
-                                button {
-                                    class: "users-table__delete",
-                                    onclick: {
-                                        let name = name.clone();
-                                        move |_| {
-                                            if let Ok(store) = &*state.users.read() {
-                                                match store.db.remove_user(&name) {
-                                                    Ok(()) => error_msg.set(None),
-                                                    Err(e) => error_msg.set(Some(capitalize(&e.to_string()))),
+                                if pending_delete().as_deref() == Some(name.as_str()) {
+                                    button {
+                                        class: "users-table__delete users-table__delete--confirm",
+                                        onclick: {
+                                            let name = name.clone();
+                                            move |_| {
+                                                if let Ok(store) = &*state.users.read() {
+                                                    match store.db.remove_user(&name) {
+                                                        Ok(()) => error_msg.set(None),
+                                                        Err(e) => error_msg.set(Some(capitalize(&e.to_string()))),
+                                                    }
                                                 }
+                                                pending_delete.set(None);
+                                                refresh_user_names(state);
                                             }
-                                            refresh_user_names(state);
-                                        }
-                                    },
-                                    "Delete"
+                                        },
+                                        "Confirm delete"
+                                    }
+                                } else {
+                                    button {
+                                        class: "users-table__delete",
+                                        onclick: {
+                                            let name = name.clone();
+                                            move |_| pending_delete.set(Some(name.clone()))
+                                        },
+                                        "Delete"
+                                    }
                                 }
                             }
                         }
@@ -156,6 +179,7 @@ pub fn UserManager(on_close: EventHandler<()>) -> Element {
                             placeholder: "User name",
                             autocomplete: "off",
                             oninput: move |e| new_name.set(e.value()),
+                            onkeydown: submit_on_enter,
                         }
                         input {
                             class: "status-summary__input",
@@ -163,6 +187,7 @@ pub fn UserManager(on_close: EventHandler<()>) -> Element {
                             placeholder: "Password",
                             autocomplete: "new-password",
                             oninput: move |e| new_password.set(e.value()),
+                            onkeydown: submit_on_enter,
                         }
                         input {
                             class: "status-summary__input",
@@ -170,11 +195,7 @@ pub fn UserManager(on_close: EventHandler<()>) -> Element {
                             placeholder: "Confirm password",
                             autocomplete: "new-password",
                             oninput: move |e| new_confirm.set(e.value()),
-                            onkeydown: move |e| {
-                                if e.key() == Key::Enter {
-                                    add_user.call(());
-                                }
-                            },
+                            onkeydown: submit_on_enter,
                         }
                         if let Some(err) = error_msg() {
                             p { class: "users-modal__error", "{err}" }

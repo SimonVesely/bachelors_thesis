@@ -4,6 +4,8 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::util::shorten_start;
+
 #[derive(Clone, PartialEq)]
 struct Entry {
     name: String,
@@ -36,12 +38,17 @@ pub fn DirectoryPreview(root_dir: Signal<String>, logs: Signal<Vec<MessageEvent>
 
     let expanded = use_signal(HashSet::<PathBuf>::new);
     let path = PathBuf::from(root_dir());
+    let full = std::path::absolute(&path)
+        .unwrap_or_else(|_| path.clone())
+        .display()
+        .to_string();
+    let short = shorten_start(&full, 28);
 
     rsx! {
         div { class: "dir-preview",
             div { class: "dir-preview__header",
                 span { "Root directory" }
-                span { class: "dir-preview__path", "{path.display()}" }
+                span { class: "dir-preview__path", title: "{full}", "{short}" }
             }
             div { class: "dir-preview__body",
                 match read_entries(&path) {
@@ -70,11 +77,7 @@ fn DirectoryNode(entry: Entry, depth: usize, expanded: Signal<HashSet<PathBuf>>)
     };
 
     let icon = if entry.is_dir {
-        if is_open {
-            "\u{1F4C2}"
-        } else {
-            "\u{1F4C1}"
-        }
+        if is_open { "\u{1F4C2}" } else { "\u{1F4C1}" }
     } else {
         "\u{1F4C4}"
     };

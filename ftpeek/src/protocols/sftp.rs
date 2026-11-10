@@ -34,6 +34,7 @@ impl Spec for Sftp {
     fn hints(&self) -> &'static [&'static str] {
         &[
             "A new SSH host key is generated on every start - the client will warn that the key changed. If port 22 is taken by the system SSH server, use 2222.",
+            "SSH is encrypted on the wire - turn pcap off to see the decoded SFTP packets in the event log.",
         ]
     }
 

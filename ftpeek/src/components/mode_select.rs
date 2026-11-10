@@ -1,4 +1,5 @@
 use crate::components::UserManager;
+use crate::util::plural;
 use crate::{AppState, Route};
 use dioxus::prelude::*;
 
@@ -6,12 +7,17 @@ use dioxus::prelude::*;
 pub fn ModeSelect() -> Element {
     let mut state = use_context::<AppState>();
     let interfaces = state.interfaces.read().clone();
-    let selected = state.selected_interface.read().clone();
+    let selected = state
+        .selected_interface
+        .read()
+        .clone()
+        .unwrap_or_else(|| "0.0.0.0".to_string());
     let mut show_users = use_signal(|| false);
 
     let anonymous = (state.anonymous)();
     let user_count = state.user_names.read().len();
     let db_ok = state.users.read().is_ok();
+    let users_label = plural(user_count, "registered user");
 
     rsx! {
         section { class: "mode-select",
@@ -29,42 +35,46 @@ pub fn ModeSelect() -> Element {
                     }
                 }
                 Link {
-                    class: "mode-card mode-card--client",
+                    class: "mode-card mode-card--soon",
                     to: Route::Unavailable { mode: "client".to_string() },
+                    span { class: "mode-card__badge", "Coming soon" }
                     span { class: "mode-card__label", "Client only" }
                     span { class: "mode-card__desc",
                         "Connect to an existing server as a client and log the exchange."
                     }
                 }
                 Link {
-                    class: "mode-card mode-card--fold",
+                    class: "mode-card mode-card--soon",
                     to: Route::Unavailable { mode: "fold".to_string() },
+                    span { class: "mode-card__badge", "Coming soon" }
                     span { class: "mode-card__label", "Fold" }
                     span { class: "mode-card__desc",
-                        "Server + client together — run and inspect a full session locally."
+                        "Server + client together \u{2014} run and inspect a full session locally."
                     }
                 }
             }
 
             div { class: "interface-picker",
                 h3 { class: "interface-picker__title", "Network interface" }
-                if interfaces.is_empty() {
-                    p { class: "interface-picker__empty", "No non-loopback interfaces found." }
-                } else {
-                    select {
-                        class: "interface-picker__select",
-                        value: "{selected.clone().unwrap_or_default()}",
-                        onchange: move |evt| {
-                            state.selected_interface.set(Some(evt.value()));
-                        },
-                        for iface in interfaces.iter() {
-                            option {
-                                key: "{iface.ip}",
-                                value: "{iface.ip}",
-                                "{iface.name} — {iface.ip}"
-                            }
+                select {
+                    class: "interface-picker__select",
+                    value: "{selected}",
+                    onchange: move |evt| {
+                        state.selected_interface.set(Some(evt.value()));
+                    },
+                    for iface in interfaces.iter() {
+                        option {
+                            key: "{iface.ip}",
+                            value: "{iface.ip}",
+                            "{iface.name} \u{2014} {iface.ip}"
                         }
                     }
+                    // Loopback = client and server on this one computer (single-PC lab)
+                    option { value: "127.0.0.1", "Loopback \u{2014} 127.0.0.1" }
+                    option { value: "0.0.0.0", "All interfaces \u{2014} 0.0.0.0" }
+                }
+                if interfaces.is_empty() {
+                    p { class: "interface-picker__empty", "No network interface with an IPv4 address was found." }
                 }
             }
 
@@ -102,7 +112,7 @@ pub fn ModeSelect() -> Element {
                     }
                 } else {
                     p { class: "access-panel__hint",
-                        "Only the {user_count} registered user(s) can log in."
+                        "Only the {users_label} can log in."
                     }
                 }
             }

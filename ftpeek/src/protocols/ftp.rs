@@ -14,7 +14,7 @@ pub(super) const PI_PORT: Opt = Opt::Port {
 
 pub(super) const DTP_PORT: Opt = Opt::Port {
     key: "dtp",
-    label: "DTP port",
+    label: "Passive port",
     default: 20,
 };
 
