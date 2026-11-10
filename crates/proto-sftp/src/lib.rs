@@ -11,8 +11,10 @@
 //! - Every SSH step (auth, channel, subsystem) and every SFTP packet is sent as MessageEvent,
 //! password itself is never logged, only its length
 //! - Supported operations: realpath, stat, lstat, fstat, opendir, readdir, open, read, write,
-//! close, remove, mkdir, rmdir, rename, setstat/fsetstat are accepted but ignored,
+//! close, remove, mkdir, rmdir, rename, setstat/fsetstat (size, permissions, times),
 //! symlinks are not supported
+//! - Shell, exec and pty requests are refused with CHANNEL_FAILURE (no shell, no legacy scp),
+//! exit status 0 is sent when the client closes the sftp channel
 //! - SSH traffic can't be decrypted in FTPeek capture view (russh doesn't expose session keys),
 //! decrypted content is visible in the event log
 //! ## Structure:
@@ -78,7 +80,7 @@ use std::time::Duration;
 use proto_core::{Direction, EventKind, EventSender, UserDb, next_session_id};
 use russh::keys::{Algorithm, HashAlg, PrivateKey};
 use russh::server::{Auth, ChannelOpenHandle, Msg, Session};
-use russh::{Channel, ChannelId, Disconnect, MethodKind, MethodSet};
+use russh::{Channel, ChannelId, Disconnect, MethodKind, MethodSet, Pty};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 
@@ -190,6 +192,15 @@ impl SshSession {
             text.into(),
         );
     }
+
+    fn refuse(&mut self, channel_id: ChannelId, session: &mut Session) -> Result<(), russh::Error> {
+        if self.channel.as_ref().is_some_and(|c| c.id() == channel_id) {
+            self.channel = None;
+        }
+        session.channel_failure(channel_id)?;
+        self.reply("SSH_MSG_CHANNEL_FAILURE, only the sftp subsystem is available");
+        Ok(())
+    }
 }
 
 impl russh::server::Handler for SshSession {
@@ -250,12 +261,44 @@ impl russh::server::Handler for SshSession {
                 let fs = fs::Fs::new(self.cfg.root_dir.clone());
                 russh_sftp::server::run(stream, fs).await;
             }
-            _ => {
-                session.channel_failure(channel_id)?;
-                self.reply("SSH_MSG_CHANNEL_FAILURE, only the sftp subsystem is available");
-            }
+            _ => self.refuse(channel_id, session)?,
         }
         Ok(())
+    }
+
+    async fn exec_request(
+        &mut self,
+        channel_id: ChannelId,
+        data: &[u8],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        let command = String::from_utf8_lossy(data);
+        self.request(format!("SSH_MSG_CHANNEL_REQUEST exec \"{command}\""));
+        self.refuse(channel_id, session)
+    }
+
+    async fn shell_request(
+        &mut self,
+        channel_id: ChannelId,
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        self.request("SSH_MSG_CHANNEL_REQUEST shell".into());
+        self.refuse(channel_id, session)
+    }
+
+    async fn pty_request(
+        &mut self,
+        channel_id: ChannelId,
+        term: &str,
+        _col_width: u32,
+        _row_height: u32,
+        _pix_width: u32,
+        _pix_height: u32,
+        _modes: &[(Pty, u32)],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        self.request(format!("SSH_MSG_CHANNEL_REQUEST pty-req \"{term}\""));
+        self.refuse(channel_id, session)
     }
 
     async fn channel_eof(
@@ -264,7 +307,12 @@ impl russh::server::Handler for SshSession {
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         self.request("SSH_MSG_CHANNEL_EOF".into());
+        session.exit_status_request(channel, 0)?;
+        session.eof(channel)?;
         session.close(channel)?;
+        self.reply(
+            "SSH_MSG_CHANNEL_REQUEST exit-status 0, SSH_MSG_CHANNEL_EOF, SSH_MSG_CHANNEL_CLOSE",
+        );
         Ok(())
     }
 }

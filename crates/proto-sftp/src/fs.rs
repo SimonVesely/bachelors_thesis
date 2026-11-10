@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use std::fs::{FileTimes, Permissions};
 use std::io::{self, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, UNIX_EPOCH};
 
 use russh_sftp::protocol::{
     Attrs, Data, File, FileAttributes, Handle, Name, OpenFlags, Status, StatusCode, Version,
@@ -87,6 +89,44 @@ async fn attrs(path: &Path) -> Result<FileAttributes, StatusCode> {
     Ok(FileAttributes::from(&meta))
 }
 
+#[cfg(unix)]
+fn permissions(_current: Permissions, mode: u32) -> Permissions {
+    use std::os::unix::fs::PermissionsExt;
+    Permissions::from_mode(mode & 0o7777)
+}
+
+#[cfg(not(unix))]
+fn permissions(mut current: Permissions, mode: u32) -> Permissions {
+    current.set_readonly(mode & 0o200 == 0);
+    current
+}
+
+fn times(attrs: &FileAttributes) -> Option<FileTimes> {
+    let at = |secs: u32| UNIX_EPOCH + Duration::from_secs(secs.into());
+    Some(
+        FileTimes::new()
+            .set_accessed(at(attrs.atime?))
+            .set_modified(at(attrs.mtime?)),
+    )
+}
+
+async fn apply(file: &fs::File, attrs: &FileAttributes) -> io::Result<()> {
+    if let Some(size) = attrs.size {
+        file.set_len(size).await?;
+    }
+    if let Some(mode) = attrs.permissions {
+        let current = file.metadata().await?.permissions();
+        file.set_permissions(permissions(current, mode)).await?;
+    }
+    if let Some(times) = times(attrs) {
+        let std_file = file.try_clone().await?.into_std().await;
+        tokio::task::spawn_blocking(move || std_file.set_times(times))
+            .await
+            .map_err(io::Error::other)??;
+    }
+    Ok(())
+}
+
 impl russh_sftp::server::Handler for Fs {
     type Error = StatusCode;
 
@@ -125,18 +165,39 @@ impl russh_sftp::server::Handler for Fs {
     async fn setstat(
         &mut self,
         id: u32,
-        _path: String,
-        _attrs: FileAttributes,
+        path: String,
+        attrs: FileAttributes,
     ) -> Result<Status, Self::Error> {
+        let path = self.real(&path)?;
+        if let Some(mode) = attrs.permissions {
+            let current = fs::metadata(&path).await.map_err(code)?.permissions();
+            fs::set_permissions(&path, permissions(current, mode))
+                .await
+                .map_err(code)?;
+        }
+        if attrs.size.is_some() || times(&attrs).is_some() {
+            let file = OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .await
+                .map_err(code)?;
+            let rest = FileAttributes {
+                permissions: None,
+                ..attrs
+            };
+            apply(&file, &rest).await.map_err(code)?;
+        }
         Ok(ok(id))
     }
 
     async fn fsetstat(
         &mut self,
         id: u32,
-        _handle: String,
-        _attrs: FileAttributes,
+        handle: String,
+        attrs: FileAttributes,
     ) -> Result<Status, Self::Error> {
+        let file = self.file(&handle)?;
+        apply(file, &attrs).await.map_err(code)?;
         Ok(ok(id))
     }
 

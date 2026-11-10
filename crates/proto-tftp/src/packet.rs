@@ -48,11 +48,11 @@ impl Packet {
             },
             4 => Packet::Ack { block: number()? },
             5 => {
-                let text = body[2..].strip_suffix(&[0]).unwrap_or(&body[2..]);
-                let message = String::from_utf8_lossy(text).into_owned();
+                let text = body.get(2..)?;
+                let text = text.strip_suffix(&[0]).unwrap_or(text);
                 Packet::Error {
                     code: number()?,
-                    message,
+                    message: String::from_utf8_lossy(text).into_owned(),
                 }
             }
             6 => Packet::Oack {
