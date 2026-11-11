@@ -19,7 +19,7 @@ proto-ftps     = { workspace = true }
 proto-tftp     = { workspace = true }
 proto-sftp     = { workspace = true }
 tracing        = { workspace = true }
-rfd            = "0.17"
+rfd            = "0.18"
 tokio          = { workspace = true }
 directories    = "6"
 base64         = "0.23.1"
