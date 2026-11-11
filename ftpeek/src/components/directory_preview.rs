@@ -1,8 +1,8 @@
 use dioxus::prelude::*;
-use proto_core::MessageEvent;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use crate::util::shorten_start;
 
@@ -33,8 +33,15 @@ fn read_entries(dir: &Path) -> Option<Vec<Entry>> {
 }
 
 #[component]
-pub fn DirectoryPreview(root_dir: Signal<String>, logs: Signal<Vec<MessageEvent>>) -> Element {
-    let _tick = logs.read().len();
+pub fn DirectoryPreview(root_dir: Signal<String>) -> Element {
+    let mut tick = use_signal(|| 0u64);
+    use_future(move || async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            tick += 1;
+        }
+    });
+    let _ = tick();
 
     let expanded = use_signal(HashSet::<PathBuf>::new);
     let path = PathBuf::from(root_dir());

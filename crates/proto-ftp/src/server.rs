@@ -2,14 +2,18 @@ use std::io;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
-use tokio::sync::broadcast;
+use tokio::sync::{Semaphore, broadcast};
 
 use proto_core::{EventSender, Protocol, UserDb};
 
 use crate::connection::{DataPorts, handle_client};
 use crate::tls::TlsUpgrader;
+
+pub const MAX_CLIENTS: usize = 200;
 
 pub struct FtpServerConfig {
     pub bind_addr: IpAddr,
@@ -39,12 +43,25 @@ pub async fn serve_with(
 ) -> io::Result<()> {
     let listener = TcpListener::bind((cfg.bind_addr, cfg.control_port)).await?;
     tracing::info!(addr = %cfg.bind_addr, port = cfg.control_port, ?protocol, "server listening");
+    let slots = Arc::new(Semaphore::new(MAX_CLIENTS));
 
     loop {
         tokio::select! {
             accepted = listener.accept() => {
-                let (stream, peer) = accepted?;
-                let local = stream.local_addr()?;
+                let (mut stream, peer, local) = match accepted.and_then(|(s, p)| Ok((s.local_addr()?, s, p))) {
+                    Ok((local, stream, peer)) => (stream, peer, local),
+                    Err(err) => {
+                        tracing::warn!(%err, "accept failed");
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        continue;
+                    }
+                };
+                let Ok(slot) = slots.clone().try_acquire_owned() else {
+                    if !implicit_tls {
+                        let _ = stream.write_all(b"421 Too many connections, try again later.\r\n").await;
+                    }
+                    continue;
+                };
                 let events = events.clone();
                 let root = cfg.root_dir.clone();
                 let users = cfg.users.clone();
@@ -57,6 +74,7 @@ pub async fn serve_with(
                 let tls = tls.clone();
 
                 tokio::spawn(async move {
+                    let _slot = slot;
                     if let Err(err) = handle_client(
                         stream, peer, local, users, root, ports,
                         events, client_shutdown, protocol, tls, implicit_tls,

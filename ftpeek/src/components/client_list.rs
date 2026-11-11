@@ -90,10 +90,10 @@ pub fn ClientList(clients: Signal<Vec<ClientInfo>>, filter: Signal<Option<u64>>)
                         title: "Remove disconnected clients from the list",
                         onclick: move |_| {
                             clients.write().retain(|c| c.connected);
-                            if let Some(id) = filter() {
-                                if !clients.read().iter().any(|c| c.session == id) {
-                                    filter.set(None);
-                                }
+                            if let Some(id) = filter()
+                                && !clients.read().iter().any(|c| c.session == id)
+                            {
+                                filter.set(None);
                             }
                         },
                         "Clear"

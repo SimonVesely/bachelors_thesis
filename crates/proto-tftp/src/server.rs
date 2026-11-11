@@ -84,9 +84,23 @@ pub async fn serve(
             }
         };
 
-        let socket = UdpSocket::bind((cfg.bind_addr, 0)).await?;
+        let bound = match UdpSocket::bind((cfg.bind_addr, 0)).await {
+            Ok(socket) => socket.local_addr().map(|local| (socket, local)),
+            Err(err) => Err(err),
+        };
+        let Ok((socket, transfer_local)) = bound else {
+            let message = "Server can't open a transfer port".into();
+            let error = Packet::Error {
+                code: NOT_DEFINED,
+                message,
+            };
+            if socket.send_to(&error.encode(), peer).await.is_ok() {
+                log.outgoing(&error, "");
+            }
+            continue;
+        };
         let log = Log {
-            local: socket.local_addr()?,
+            local: transfer_local,
             ..log
         };
         let shutdown = shutdown.resubscribe();
@@ -326,6 +340,10 @@ fn resolve(root: &Path, name: &str) -> Result<PathBuf, Fail> {
             return Err(Fail::Error(ACCESS_VIOLATION, message));
         }
         path.push(part);
+    }
+    if !proto_core::within_root(root, &path) {
+        let message = "Path outside the server root".into();
+        return Err(Fail::Error(ACCESS_VIOLATION, message));
     }
     Ok(path)
 }

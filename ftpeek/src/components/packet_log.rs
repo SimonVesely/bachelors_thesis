@@ -7,6 +7,7 @@ use proto_core::{Direction, EventKind, MessageEvent};
 
 use super::ClientInfo;
 use crate::protocols::Proto;
+use crate::util::MAX_LOG_ROWS;
 
 const ROW_HEIGHT: f64 = 20.0;
 const OVERSCAN: usize = 15;
@@ -161,11 +162,14 @@ pub fn PacketLog(
     };
     let (first, last) = window(shown, scroll_top(), view_height());
 
-    let count_label = if only.is_some() {
+    let mut count_label = if only.is_some() {
         format!("{shown} of {total} packets")
     } else {
         format!("{total} packets")
     };
+    if total >= MAX_LOG_ROWS {
+        count_label += " - log full, Clear to continue";
+    }
     let client_options: Vec<(u64, String)> = clients
         .read()
         .iter()

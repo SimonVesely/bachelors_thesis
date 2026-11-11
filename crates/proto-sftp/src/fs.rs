@@ -11,6 +11,7 @@ use tokio::fs::{self, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 const MAX_READ: u32 = 256 * 1024;
+const MAX_HANDLES: usize = 256;
 
 enum Open {
     File(fs::File),
@@ -34,14 +35,21 @@ impl Fs {
 
     fn real(&self, path: &str) -> Result<PathBuf, StatusCode> {
         let virt = normalize(path)?;
-        Ok(self.root.join(virt.trim_start_matches('/')))
+        let real = self.root.join(virt.trim_start_matches('/'));
+        match proto_core::within_root(&self.root, &real) {
+            true => Ok(real),
+            false => Err(StatusCode::PermissionDenied),
+        }
     }
 
-    fn insert(&mut self, open: Open) -> String {
+    fn insert(&mut self, open: Open) -> Result<String, StatusCode> {
+        if self.handles.len() >= MAX_HANDLES {
+            return Err(StatusCode::Failure);
+        }
         self.next += 1;
         let handle = self.next.to_string();
         self.handles.insert(handle.clone(), open);
-        handle
+        Ok(handle)
     }
 
     fn file(&mut self, handle: &str) -> Result<&mut fs::File, StatusCode> {
@@ -210,7 +218,7 @@ impl russh_sftp::server::Handler for Fs {
                 files.push(File::new(name, FileAttributes::from(&meta)));
             }
         }
-        let handle = self.insert(Open::Dir(Some(files)));
+        let handle = self.insert(Open::Dir(Some(files)))?;
         Ok(Handle { id, handle })
     }
 
@@ -244,7 +252,7 @@ impl russh_sftp::server::Handler for Fs {
             .open(path)
             .await
             .map_err(code)?;
-        let handle = self.insert(Open::File(file));
+        let handle = self.insert(Open::File(file))?;
         Ok(Handle { id, handle })
     }
 

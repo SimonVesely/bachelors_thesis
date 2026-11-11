@@ -1,7 +1,7 @@
 //! # FTP Protocol implementation using RFCs 959(Plain FTP) and 2228(FTPS extension)
 //! ## About:
 //! - FTP implementation made in pure Rust, supports also FTPS, however for
-//! explicit FTPS server proto-ftps crate was created
+//!   explicit FTPS server proto-ftps crate was created
 //! ## Structure:
 //! - lib.rs - Module connection, serves public API for FTP server usage
 //! - command.rs - Contains all FTP/S commands and parser

@@ -3,22 +3,22 @@
 //! - TFTP server made in pure Rust on top of tokio UDP sockets
 //! - TFTP has no login, anyone who reaches the port can read every file in the root directory
 //! - Every transfer (RRQ / WRQ) runs on its own UDP socket with a new port, so more clients
-//! can transfer at the same time
+//!   can transfer at the same time
 //! - Lockstep transfer, every DATA block waits for its ACK, lost packets are retransmitted
-//! after 2 seconds, after 5 retries the transfer is aborted
+//!   after 2 seconds, after 5 retries the transfer is aborted
 //! - Supported options (answered with OACK):
 //!   - blksize - block size, capped at MAX_BLKSIZE (1468 bytes), default 512
 //!   - tsize - transfer size, server answers with the real file size
 //! - Uploads (WRQ) can be disabled with allow_write: false, server is then read only
 //! - All paths are confined to the root directory, errors are answered with TFTP ERROR packets
-//! (FILE_NOT_FOUND, ACCESS_VIOLATION, ILLEGAL_OPERATION, ...)
+//!   (FILE_NOT_FOUND, ACCESS_VIOLATION, ILLEGAL_OPERATION, ...)
 //! - Every received and sent packet is sent as MessageEvent, retransmissions are marked
 //! ## Structure:
 //! - lib.rs - Module connection, serves public API for TFTP server usage
 //! - packet.rs - Contains all TFTP packets (RRQ, WRQ, DATA, ACK, ERROR, OACK), parser,
-//! encoder, error codes and human readable summary
+//!   encoder, error codes and human readable summary
 //! - server.rs - Contains public functions that enables TFTP server, transfers, option
-//! negotiation and event logging
+//!   negotiation and event logging
 //! ## Public API usage example:
 //! ```
 //! use std::net::{IpAddr, Ipv4Addr};

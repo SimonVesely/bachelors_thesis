@@ -14,6 +14,7 @@ use crate::components::{
     PacketLog, track_client,
 };
 use crate::protocols::{Options, Proto, ServeCtx};
+use crate::util::MAX_LOG_ROWS;
 use crate::{AppState, Route};
 
 use capture::use_capture;
@@ -100,7 +101,9 @@ pub fn Status(mode: String, protocol: Proto) -> Element {
         spawn(async move {
             while let Some(event) = rx.recv().await {
                 track_client(&mut clients.write(), &event);
-                logs.write().push(event);
+                if logs.read().len() < MAX_LOG_ROWS {
+                    logs.write().push(event);
+                }
             }
         });
 
@@ -152,7 +155,7 @@ pub fn Status(mode: String, protocol: Proto) -> Element {
                     }
                 }
                 div { class: "pane pane--dir",
-                    DirectoryPreview { root_dir, logs }
+                    DirectoryPreview { root_dir }
                 }
                 div { class: "pane pane--diagram",
                     if wire() {

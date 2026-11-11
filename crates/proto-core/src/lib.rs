@@ -45,6 +45,7 @@ mod users;
 pub use users::{UserDb, UserDbError};
 
 use std::net::{IpAddr, SocketAddr};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
 
@@ -125,6 +126,22 @@ impl MessageEvent {
     pub fn with_session(mut self, session: u64) -> Self {
         self.session = session;
         self
+    }
+}
+
+pub fn within_root(root: &Path, path: &Path) -> bool {
+    let Ok(root) = std::fs::canonicalize(root) else {
+        return false;
+    };
+    let mut existing = path;
+    loop {
+        match std::fs::canonicalize(existing) {
+            Ok(real) => return real.starts_with(&root),
+            Err(_) => match existing.parent() {
+                Some(parent) => existing = parent,
+                None => return false,
+            },
+        }
     }
 }
 

@@ -148,18 +148,16 @@ enum Route {
 }
 
 fn main() {
-    let mut window = WindowBuilder::new()
+    let window = WindowBuilder::new()
         .with_title("FTPeek")
         .with_min_inner_size(dioxus_desktop::tao::dpi::LogicalSize::new(760.0, 500.0));
 
     #[cfg(target_os = "macos")]
-    {
-        window = window
-            .with_titlebar_transparent(true)
-            .with_title_hidden(true)
-            .with_fullsize_content_view(true)
-            .with_movable_by_window_background(true);
-    }
+    let window = window
+        .with_titlebar_transparent(true)
+        .with_title_hidden(true)
+        .with_fullsize_content_view(true)
+        .with_movable_by_window_background(true);
 
     let config = Config::new().with_window(window);
     #[cfg(not(target_os = "macos"))]

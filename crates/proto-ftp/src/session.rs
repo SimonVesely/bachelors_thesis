@@ -3,8 +3,6 @@ use std::path::{Component, Path, PathBuf};
 
 use tokio::net::TcpListener;
 
-use proto_core::Protocol;
-
 use crate::tls::TlsUpgrader;
 
 pub enum DataChannel {
@@ -14,10 +12,8 @@ pub enum DataChannel {
 }
 
 pub struct Session {
-    pub id: u64,
     pub root: PathBuf,
     pub cwd: PathBuf,
-    pub protocol: Protocol,
     pub username: Option<String>,
     pub authenticated: bool,
     pub host: Option<String>,
@@ -33,12 +29,10 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(id: u64, root: PathBuf, protocol: Protocol, tls: Option<TlsUpgrader>) -> Self {
+    pub fn new(root: PathBuf, tls: Option<TlsUpgrader>) -> Self {
         Session {
-            id,
             root,
             cwd: PathBuf::from("/"),
-            protocol,
             username: None,
             authenticated: false,
             host: None,
@@ -75,7 +69,7 @@ impl Session {
             }
         }
 
-        if !target.starts_with(&self.root) {
+        if !target.starts_with(&self.root) || !proto_core::within_root(&self.root, &target) {
             target = self.root.clone();
         }
         target

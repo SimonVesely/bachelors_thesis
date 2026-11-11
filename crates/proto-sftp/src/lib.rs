@@ -1,28 +1,28 @@
 //! # SFTP Protocol implementation using SSH File Transfer Protocol version 3 (draft-ietf-secsh-filexfer-02) over SSH-2 (RFCs 4251-4254)
 //! ## About:
 //! - SFTP server made in pure Rust, SSH-2 layer (key exchange, encryption, authentication,
-//! channels) is provided by russh crate, SFTP packet parsing by russh-sftp crate, this crate
-//! implements the file operations and logging
+//!   channels) is provided by russh crate, SFTP packet parsing by russh-sftp crate, this crate
+//!   implements the file operations and logging
 //! - New ED25519 host key is generated on every start, clients will warn that the key changed
 //! - Authentication only by password:
 //!   - users: None - anonymous, any user name and password is accepted
 //!   - users: Some(UserDb) - checked against proto-core user database (redb + argon2)
 //! - All paths are confined to the root directory, ".." can't leave it, ':' and '\' are rejected
 //! - Every SSH step (auth, channel, subsystem) and every SFTP packet is sent as MessageEvent,
-//! password itself is never logged, only its length
+//!   password itself is never logged, only its length
 //! - Supported operations: realpath, stat, lstat, fstat, opendir, readdir, open, read, write,
-//! close, remove, mkdir, rmdir, rename, setstat/fsetstat (size, permissions, times),
-//! symlinks are not supported
+//!   close, remove, mkdir, rmdir, rename, setstat/fsetstat (size, permissions, times),
+//!   symlinks are not supported
 //! - Shell, exec and pty requests are refused with CHANNEL_FAILURE (no shell, no legacy scp),
-//! exit status 0 is sent when the client closes the sftp channel
+//!   exit status 0 is sent when the client closes the sftp channel
 //! - SSH traffic can't be decrypted in FTPeek capture view (russh doesn't expose session keys),
-//! decrypted content is visible in the event log
+//!   decrypted content is visible in the event log
 //! ## Structure:
 //! - lib.rs - Public API (SftpServerConfig, serve), SSH server, password authentication,
-//! session channel and sftp subsystem handling
+//!   session channel and sftp subsystem handling
 //! - fs.rs - Contains SFTP file operations over the root directory and handle table
 //! - log.rs - Contains event logging, Tee wrapper splitting SSH channel stream into SFTP
-//! packets and their human readable description
+//!   packets and their human readable description
 //! ## Public API usage example:
 //! ```
 //! use std::net::{IpAddr, Ipv4Addr};
@@ -82,9 +82,11 @@ use russh::keys::{Algorithm, HashAlg, PrivateKey};
 use russh::server::{Auth, ChannelOpenHandle, Msg, Session};
 use russh::{Channel, ChannelId, Disconnect, MethodKind, MethodSet, Pty};
 use tokio::net::TcpListener;
-use tokio::sync::broadcast;
+use tokio::sync::{Semaphore, broadcast};
 
 use crate::log::{Log, Tee};
+
+pub const MAX_CLIENTS: usize = 200;
 
 #[derive(Clone)]
 pub struct SftpServerConfig {
@@ -117,20 +119,32 @@ pub async fn serve(
         auth_rejection_time: Duration::from_secs(1),
         auth_rejection_time_initial: Some(Duration::ZERO),
         keys: vec![key],
+        inactivity_timeout: Some(Duration::from_secs(300)),
         ..Default::default()
     });
     let listener = TcpListener::bind((cfg.bind_addr, cfg.port)).await?;
+    let slots = Arc::new(Semaphore::new(MAX_CLIENTS));
 
     loop {
-        let (stream, peer) = tokio::select! {
-            accepted = listener.accept() => accepted?,
+        let accepted = tokio::select! {
+            accepted = listener.accept() => accepted,
             _ = shutdown.recv() => return Ok(()),
+        };
+        let (stream, peer, local) = match accepted.and_then(|(s, p)| Ok((s.local_addr()?, s, p))) {
+            Ok((local, stream, peer)) => (stream, peer, local),
+            Err(_) => {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                continue;
+            }
+        };
+        let Ok(slot) = slots.clone().try_acquire_owned() else {
+            continue;
         };
         let log = Log {
             events: events.clone(),
             session: next_session_id(),
             peer,
-            local: stream.local_addr()?,
+            local,
         };
         let text = format!("TCP connection opened, SSH host key ED25519 {fingerprint}");
         log.emit(
@@ -147,6 +161,7 @@ pub async fn serve(
         let config = config.clone();
         let mut shutdown = shutdown.resubscribe();
         tokio::spawn(async move {
+            let _slot = slot;
             let _ = stream.set_nodelay(true);
             if let Ok(session) = russh::server::run_stream(config, stream, handler).await {
                 let handle = session.handle();

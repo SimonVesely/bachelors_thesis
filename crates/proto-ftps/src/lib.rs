@@ -1,19 +1,19 @@
 //! # FTPS Protocol implementation using RFCs 4217(FTP over TLS) and 2228(FTP security extensions)
 //! ## About:
 //! - FTPS server made in pure Rust on top of proto-ftp crate, all FTP logic (commands, sessions,
-//! passive data connections) is reused from proto-ftp, this crate only adds the TLS layer
+//!   passive data connections) is reused from proto-ftp, this crate only adds the TLS layer
 //! - Supports both modes:
 //!   - Explicit - client connects in plain FTP and upgrades with AUTH TLS (usually port 21)
 //!   - Implicit - TLS from the first byte of the connection (usually port 990)
 //! - TLS via rustls with ring crypto provider, TLS 1.2 and TLS 1.3
 //! - Self-signed certificate (rcgen) is generated on every start for localhost and bind address
 //! - Data connections resume the TLS session of the control connection (session cache + tickets),
-//! which many clients like FileZilla require
+//!   which many clients like FileZilla require
 //! - Session secrets are recorded through rustls KeyLog into proto_core::capture, so captured
-//! traffic can be decrypted in FTPeek for lab purpose
+//!   traffic can be decrypted in FTPeek for lab purpose
 //! ## Structure:
 //! - lib.rs - Public API (FtpsServerConfig, FtpsMode, serve), building of TLS acceptors for
-//! control and data connections, certificate generation and key logger
+//!   control and data connections, certificate generation and key logger
 //! ## Public API usage example:
 //! ```
 //! use std::net::{IpAddr, Ipv4Addr};

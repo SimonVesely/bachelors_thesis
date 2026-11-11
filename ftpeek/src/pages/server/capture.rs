@@ -3,6 +3,8 @@ use std::time::Duration;
 use dioxus::prelude::*;
 use proto_core::capture::{Capture, CaptureConfig, Dissector, Packet};
 
+use crate::util::MAX_LOG_ROWS;
+
 #[derive(Clone, Copy, PartialEq)]
 pub struct CaptureState {
     pub packets: Signal<Vec<Packet>>,
@@ -53,6 +55,7 @@ impl CaptureState {
                 while let Ok(frame) = frame_rx.try_recv() {
                     batch.extend(dissector.dissect(frame));
                 }
+                batch.truncate(MAX_LOG_ROWS.saturating_sub(packets.read().len()));
                 if !batch.is_empty() {
                     packets.write().extend(batch);
                 }

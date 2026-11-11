@@ -1,11 +1,15 @@
 use std::fmt;
 use std::path::Path;
+use std::sync::LazyLock;
 
 use argon2::Argon2;
 use argon2::password_hash::{PasswordHasher, PasswordVerifier, phc::PasswordHash};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 
 const USERS: TableDefinition<&str, &str> = TableDefinition::new("users");
+
+static DUMMY_HASH: LazyLock<String> =
+    LazyLock::new(|| hash_password("ftpeek-unknown-user").unwrap_or_default());
 
 #[derive(Debug)]
 pub enum UserDbError {
@@ -48,6 +52,7 @@ impl UserDb {
         let txn = db.begin_write().map_err(storage)?;
         txn.open_table(USERS).map_err(storage)?;
         txn.commit().map_err(storage)?;
+        LazyLock::force(&DUMMY_HASH);
         Ok(UserDb { db })
     }
 
@@ -119,7 +124,10 @@ impl UserDb {
 
         match stored {
             Some(hash) => check(&hash, password),
-            None => false,
+            None => {
+                let _ = check(&DUMMY_HASH, password);
+                false
+            }
         }
     }
 }

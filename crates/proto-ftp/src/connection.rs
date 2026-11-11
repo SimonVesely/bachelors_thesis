@@ -28,6 +28,8 @@ const FEATURES: &[&str] = &[
 ];
 
 const DATA_TIMEOUT: Duration = Duration::from_secs(30);
+const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+const MAX_LINE: u64 = 4096;
 
 pub struct DataPorts {
     pub passive_start: u16,
@@ -118,7 +120,7 @@ where
         encrypted: false,
         session: session_id,
     };
-    let mut session = Session::new(session_id, root, protocol, tls.clone());
+    let mut session = Session::new(root, tls.clone());
     session.active_port = ports.active;
     let mut stream: BoxedStream = Box::new(stream);
 
@@ -167,16 +169,42 @@ where
     let mut raw = Vec::new();
     loop {
         raw.clear();
-        tokio::select! {
-            result = reader.read_until(b'\n', &mut raw) => {
-                if result? == 0 {
-                    break;
+        let read = {
+            let mut limited = (&mut reader).take(MAX_LINE);
+            tokio::select! {
+                result = timeout(IDLE_TIMEOUT, limited.read_until(b'\n', &mut raw)) => Some(result),
+                _ = shutdown.recv() => None,
+            }
+        };
+        let closing = match read {
+            Some(Ok(result)) => match result? {
+                0 => break,
+                _ => None,
+            },
+            Some(Err(_)) => Some("421 Idle timeout, closing control connection.\r\n"),
+            None => Some("421 Service not available, closing control connection.\r\n"),
+        };
+        if let Some(reply) = closing {
+            let _ = send(&mut writer, ep, &events, reply).await;
+            break;
+        }
+        if raw.len() as u64 >= MAX_LINE && !raw.ends_with(b"\n") {
+            let mut rest = Vec::new();
+            loop {
+                rest.clear();
+                let skipped = timeout(
+                    IDLE_TIMEOUT,
+                    (&mut reader).take(MAX_LINE).read_until(b'\n', &mut rest),
+                )
+                .await;
+                match skipped {
+                    Ok(Ok(0)) | Ok(Err(_)) | Err(_) => break,
+                    Ok(Ok(_)) if rest.ends_with(b"\n") => break,
+                    Ok(Ok(_)) => {}
                 }
             }
-            _ = shutdown.recv() => {
-                let _ = send(&mut writer, ep, &events, "421 Service not available, closing control connection.\r\n").await;
-                break;
-            }
+            send(&mut writer, ep, &events, "500 Command line too long.\r\n").await?;
+            continue;
         }
         let line = decode_line(&raw);
         log_incoming(ep, &events, &line);
@@ -1030,23 +1058,23 @@ async fn open_data_connection(
     emit(events, ep, EventKind::TcpOpen, opener, Vec::new(), text);
 
     let mut data: BoxedStream = Box::new(tcp);
-    if session.prot_private {
-        if let Some(upgrader) = &session.tls {
-            let (secured, info) = upgrader
-                .upgrade(data, TlsRole::Data)
-                .await
-                .map_err(|_| TransferError::TlsNegotiation)?;
-            data = secured;
-            emit(
-                events,
-                ep,
-                EventKind::Tls,
-                Direction::ServerToClient,
-                Vec::new(),
-                format!("TLS handshake complete ({info}) - data connection encrypted"),
-            );
-            ep.encrypted = true;
-        }
+    if session.prot_private
+        && let Some(upgrader) = &session.tls
+    {
+        let (secured, info) = upgrader
+            .upgrade(data, TlsRole::Data)
+            .await
+            .map_err(|_| TransferError::TlsNegotiation)?;
+        data = secured;
+        emit(
+            events,
+            ep,
+            EventKind::Tls,
+            Direction::ServerToClient,
+            Vec::new(),
+            format!("TLS handshake complete ({info}) - data connection encrypted"),
+        );
+        ep.encrypted = true;
     }
     Ok((data, ep))
 }
@@ -1166,6 +1194,13 @@ async fn send(
 }
 
 fn log_incoming(ep: Endpoints, events: &EventSender, line: &str) {
+    let line = match line.get(..5) {
+        Some(verb) if verb.eq_ignore_ascii_case("PASS ") => {
+            let length = line.trim_end().chars().count().saturating_sub(5);
+            format!("PASS ******** ({length} characters)\r\n")
+        }
+        _ => line.to_string(),
+    };
     emit(
         events,
         ep,
