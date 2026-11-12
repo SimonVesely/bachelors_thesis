@@ -1,3 +1,12 @@
+//! # FTP command parser
+//! ## About:
+//! - `Command` - every verb the server understands (RFC 959, 2228, 2389, 3659, 7151 HOST)
+//! - `Command::parse` - case-insensitive verb, argument = rest of the line trimmed,
+//!   RFC 775 `X*` aliases (XPWD, XCWD, XMKD, ...) map to the same commands
+//! - Empty argument stays empty, validation is done per command in connection.rs
+//! - LIST, NLST, MLSD, MLST carry `Option<String>` (no argument = cwd); unparsable REST = 0
+//! - Unknown verb -> `Command::Unknown`, answered with 502
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     User(String),

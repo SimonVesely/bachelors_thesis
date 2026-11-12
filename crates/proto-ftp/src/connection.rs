@@ -1,3 +1,22 @@
+//! # FTP / FTPS control connection
+//! ## About:
+//! - `handle_client` runs one client session: banner, command loop, replies, data transfers
+//! - Implicit FTPS does the TLS handshake before the banner, explicit upgrades on `AUTH TLS`
+//! - FTPS refuses USER/PASS before AUTH TLS; everything except login, FEAT, SYST, NOOP, OPTS,
+//!   HOST and the TLS commands requires a logged-in session (530)
+//! - Control line limit 4096 B (longer -> 500, session continues), idle timeout 300 s,
+//!   shutdown broadcast closes the session with 421
+//! - Data connections:
+//!   - PASV - listener on the first free port of the configured range
+//!   - PORT - server connects from `active_port` (20 by default) to the client
+//!   - only the control peer's IP may connect to a passive port, others are logged as intruders
+//!   - 30 s timeout, PROT P wraps the data stream in TLS (`TlsRole::Data`)
+//! - Transfers: LIST/NLST/MLSD listing, RETR with REST offset, STOR/APPE; errors mapped to
+//!   425/426/451/522/535
+//! - Every command, reply, TCP open/close, TLS step and data transfer is emitted as `MessageEvent`;
+//!   PASS is masked in the log
+//! - Non-UTF-8 command bytes are decoded lossily, Telnet IAC sequences are dropped
+
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};

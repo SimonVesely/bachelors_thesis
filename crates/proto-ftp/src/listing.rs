@@ -1,3 +1,11 @@
+//! # Directory listing formats
+//! ## About:
+//! - `format_list_line` - `ls -l` style line for LIST (time for files younger than 6 months,
+//!   year otherwise), the format FileZilla, curl and lftp parse
+//! - `format_mlsx_facts` - RFC 3659 facts `type=;modify=;size=;` for MLSD/MLST
+//! - `format_mdtm` - `YYYYMMDDHHMMSS` UTC for MDTM
+//! - Unix permission bits from metadata, fixed `rwxr-xr-x` on other platforms
+
 use std::fs::Metadata;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

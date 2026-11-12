@@ -1,3 +1,12 @@
+//! # Per-client FTP session state
+//! ## About:
+//! - Login state, virtual cwd, transfer type, REST offset, RNFR source, pending data channel
+//!   (`DataChannel::Passive` listener / `Active` address) and TLS state (PBSZ, PROT)
+//! - `resolve` maps a client path to a real path under root: `..` can't go above `/`, and the
+//!   result is checked with `proto_core::within_root` so symlinks can't escape (falls back to root)
+//! - `virtual_path` / `virtual_cwd` - paths as the client sees them (root = `/`)
+//! - `reset_after_auth` - RFC 4217: AUTH TLS resets the session to the logged-out state
+
 use std::net::SocketAddr;
 use std::path::{Component, Path, PathBuf};
 

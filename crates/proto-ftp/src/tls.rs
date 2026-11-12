@@ -1,3 +1,11 @@
+//! # TLS upgrade hook
+//! ## About:
+//! - proto-ftp has no TLS dependency; proto-ftps injects a `TlsUpgrader` closure instead
+//! - `BoxedStream` - type-erased async stream, so plain TCP and TLS streams share one code path
+//! - `TlsRole` tells the upgrader whether it wraps the control or a data connection
+//!   (data connections resume the control TLS session)
+//! - `upgrade` returns the secured stream and a description of the negotiated TLS (for the log)
+
 use std::future::Future;
 use std::io;
 use std::pin::Pin;

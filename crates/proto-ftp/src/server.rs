@@ -1,3 +1,12 @@
+//! # FTP server listener
+//! ## About:
+//! - `serve` - plain FTP; `serve_with` - shared entry point used by proto-ftps with a
+//!   `TlsUpgrader` and explicit/implicit mode
+//! - One tokio task per client (`handle_client`), at most `MAX_CLIENTS` (200) at once,
+//!   over the limit the client gets 421 (nothing is sent in implicit TLS mode)
+//! - Accept errors (e.g. out of file descriptors) are logged and retried after 100 ms
+//! - Shutdown broadcast stops accepting and is forwarded to every running session
+
 use std::io;
 use std::net::IpAddr;
 use std::path::PathBuf;
