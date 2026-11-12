@@ -1,3 +1,13 @@
+//! # SFTP file operations
+//! ## About:
+//! - `Fs` implements `russh_sftp::server::Handler` over the root directory
+//! - Paths are normalized (`..` can't leave root, `:` and `\\` rejected) and checked with
+//!   `proto_core::within_root` -> symlink escapes return PERMISSION_DENIED
+//! - Handle table with at most 256 open files/directories, reads capped at 256 KiB per request
+//! - setstat/fsetstat apply size (truncate), permissions (Unix) and atime/mtime
+//! - io errors are mapped to SFTP status codes (NO_SUCH_FILE, PERMISSION_DENIED, FAILURE)
+//! - Symlink operations are not implemented (OP_UNSUPPORTED)
+
 use std::collections::HashMap;
 use std::fs::{FileTimes, Permissions};
 use std::io::{self, SeekFrom};

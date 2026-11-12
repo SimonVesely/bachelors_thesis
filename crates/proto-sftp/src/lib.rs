@@ -67,6 +67,70 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! ## Encryption process:
+//! Real session, client OpenSSH 9.6 `sftp user@127.0.0.1 -P 2222`, `get b.txt` -> FTPeek (russh 0.63).
+//! C = client, S = server, `[SSH]` = sent inside the encrypted transport.
+//! ```text
+//! Server start
+//!   new ED25519 host key on every start (PrivateKey::random) - clients warn "host key changed"
+//!   russh offers: kex     mlkem768x25519-sha256, curve25519-sha256, diffie-hellman-group14..18
+//!                 hostkey ssh-ed25519
+//!                 cipher  chacha20-poly1305@openssh.com, aes256-gcm@openssh.com, aes256/192/128-ctr
+//!                 mac     hmac-sha2-512/256(-etm)  (only for -ctr ciphers)
+//!                 + ext-info-s, kex-strict-s-v00@openssh.com (Terrapin mitigation)
+//!
+//! Transport (RFC 4253), port 2222
+//!   C -> S  TCP SYN / S -> C SYN-ACK / C -> S ACK
+//!   C -> S  SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.20                       (plaintext)
+//!   S -> C  SSH-2.0-russh_0.63.3
+//!   C -> S  KEXINIT  (1536 B) 16-byte cookie + algorithm lists, client preference first:
+//!             kex sntrup761x25519-sha512, curve25519-sha256, ecdh-sha2-nistp256, ...
+//!             cipher chacha20-poly1305@openssh.com, aes128-ctr, ..., aes256-gcm@openssh.com
+//!   S -> C  KEXINIT  (776 B)  server lists above
+//!           -> both pick the first client algorithm the server also supports:
+//!              kex curve25519-sha256, hostkey ssh-ed25519,
+//!              cipher chacha20-poly1305@openssh.com both directions (MAC implicit, Poly1305),
+//!              compression none
+//!   C -> S  KEX_ECDH_INIT   Q_C = client ephemeral X25519 public key (32 B)
+//!   S -> C  KEX_ECDH_REPLY  K_S = ED25519 host key,
+//!                           Q_S = server ephemeral X25519 public key (32 B),
+//!                           signature ssh-ed25519 over exchange hash H
+//!           NEWKEYS
+//!             K = X25519(shared secret), H = SHA-256(versions, KEXINITs, K_S, Q_C, Q_S, K)
+//!             keys = SHA-256(K || H || "A".."F" || session_id), "C"/"D" = 64 B chacha key per direction
+//!           client checks the host key fingerprint (SHA256:...) and the signature
+//!   C -> S  NEWKEYS
+//!           ---- everything below is chacha20-poly1305 encrypted ----
+//!   C <-> S [SSH] EXT_INFO  server-sig-algs=ssh-ed25519,ecdsa-sha2-*,rsa-sha2-512/256
+//!   C -> S  [SSH] SERVICE_REQUEST ssh-userauth      S -> C [SSH] SERVICE_ACCEPT
+//!
+//! Authentication (RFC 4252)
+//!   C -> S  [SSH] USERAUTH_REQUEST user, method none
+//!   S -> C  [SSH] USERAUTH_FAILURE, can continue: password
+//!   C -> S  [SSH] USERAUTH_REQUEST user, method password, "x"   (logged only as its length)
+//!   S -> C  [SSH] USERAUTH_SUCCESS     (UserDb / anonymous; failure is delayed 1 s)
+//!
+//! Channel + SFTP subsystem (RFC 4254, draft-ietf-secsh-filexfer-02)
+//!   C -> S  [SSH] CHANNEL_OPEN session          S -> C [SSH] CHANNEL_OPEN_CONFIRMATION
+//!                                               (window 2 MiB, max packet 32 KiB)
+//!   C -> S  [SSH] CHANNEL_REQUEST subsystem "sftp"   S -> C [SSH] CHANNEL_SUCCESS
+//!   C -> S  [SSH] SSH_FXP_INIT v3          S -> C [SSH] SSH_FXP_VERSION 3
+//!   C -> S  [SSH] SSH_FXP_REALPATH "."     S -> C [SSH] SSH_FXP_NAME "/"
+//!   C -> S  [SSH] SSH_FXP_STAT "/b.txt"    S -> C [SSH] SSH_FXP_ATTRS size, mode 100644, times
+//!   C -> S  [SSH] SSH_FXP_OPEN "/b.txt" READ   S -> C [SSH] SSH_FXP_HANDLE
+//!   C -> S  [SSH] SSH_FXP_READ offset 0    S -> C [SSH] SSH_FXP_DATA (10 B file content)
+//!   C -> S  [SSH] SSH_FXP_READ offset 10   S -> C [SSH] SSH_FXP_STATUS EOF
+//!   C -> S  [SSH] SSH_FXP_CLOSE            S -> C [SSH] SSH_FXP_STATUS OK
+//!   C -> S  [SSH] CHANNEL_EOF              S -> C [SSH] exit-status 0, CHANNEL_EOF, CHANNEL_CLOSE
+//!   C -> S  [SSH] CHANNEL_CLOSE, DISCONNECT, TCP FIN
+//! ```
+//! - On the wire every packet after NEWKEYS is `uint32 length` (encrypted with its own
+//!   ChaCha20 key) + ChaCha20 ciphertext + 16 B Poly1305 tag; 4-255 B random padding
+//! - Session keys stay inside russh, FTPeek can't decrypt the capture; the `Tee` in log.rs
+//!   reads the SFTP stream after russh decrypted it, so the event log shows the plaintext
+//! - With a client preferring AES: `aes256-gcm@openssh.com` (16 B tag) or `aes*-ctr` +
+//!   `hmac-sha2-*-etm@openssh.com` (encrypt-then-MAC)
 
 mod fs;
 mod log;

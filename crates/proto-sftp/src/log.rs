@@ -1,3 +1,12 @@
+//! # SFTP event logging
+//! ## About:
+//! - `Tee` wraps the SSH channel stream, copies both directions and cuts them into SFTP packets
+//!   (`u32` length prefix), so logging needs no hooks inside russh-sftp
+//! - Every packet is decoded with russh-sftp and sent as `MessageEvent` with a readable summary
+//!   (request id, path, handle, offset, length, open flags, attributes, status code)
+//! - `Log::emit` - shared helper for SSH-level events (auth, channel, subsystem, open/close);
+//!   everything except TCP open/close is marked encrypted, because it travelled inside SSH
+
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
