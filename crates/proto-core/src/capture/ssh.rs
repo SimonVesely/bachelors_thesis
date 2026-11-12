@@ -1,3 +1,12 @@
+//! # SSH packet parser (SFTP capture)
+//! ## About:
+//! - SSH session keys stay inside russh, so only the cleartext start can be dissected:
+//!   version banner, KEXINIT (all 8 algorithm name-lists), ECDH init/reply, NEWKEYS
+//! - After NEWKEYS every byte is shown as encrypted packet
+//! - `SshHalf` carries banner/encrypted flags and bytes left of a split packet between segments
+//! - Packet length outside 5..=35000 (RFC 4253) is treated as ciphertext
+//! - `scan` - Info column text, `describe` - detail layers with byte ranges
+
 use std::ops::Range;
 
 use crate::Direction;

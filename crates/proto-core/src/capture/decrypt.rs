@@ -1,3 +1,15 @@
+//! # TLS record decryption (FTPS)
+//! ## About:
+//! - Uses secrets from keys.rs (logged by the FTPS server) to decrypt captured records
+//! - `reassemble` - complete TLS records from TCP segments, buffer dropped above 1 MiB (desync)
+//! - `Session` per TCP stream: learns client/server random, version and suite from the
+//!   cleartext handshake, then tracks the key epoch and record sequence number per direction
+//! - TLS 1.3: HKDF-Expand-Label from handshake / application traffic secrets,
+//!   switch to application keys after Finished (with fallback if Finished was missed)
+//! - TLS 1.2: PRF key expansion from the master secret (`CLIENT_RANDOM`), switch at CCS
+//! - AEAD: AES-128-GCM, AES-256-GCM, ChaCha20-Poly1305; other suites stay encrypted
+//! - Records that fail to open are skipped, nothing panics on bad input
+
 use ring::{aead, hkdf, hmac};
 
 use super::keys;

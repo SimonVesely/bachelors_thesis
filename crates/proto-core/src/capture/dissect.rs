@@ -1,3 +1,17 @@
+//! # Frame dissector
+//! ## About:
+//! - `parse_headers` - Ethernet (+802.1Q), BSD/OpenBSD loopback, Linux cooked (SLL/SLL2), raw IP,
+//!   then IPv4 and TCP (with options) / UDP; IPv6 and non-first fragments are ignored
+//! - `Dissector` keeps per-capture state and drops everything that isn't the server's traffic:
+//!   - TCP streams keyed by (client, server), numbered like Wireshark `tcp.stream`
+//!   - FTP active mode: SYN from the server to a host with a control connection = data stream
+//!   - TFTP: transfers use new server ports, so packets are matched by client address
+//! - TCP analysis: relative SEQ/ACK, scaled window, retransmission, keep-alive,
+//!   previous segment not captured (resets TLS/SSH parser state)
+//! - App detection: SSH for SFTP; TLS if the stream starts with a TLS record (or on control after
+//!   AUTH TLS); otherwise FTP on control, FTP-DATA on data; UDP = TFTP
+//! - Fills Protocol/Info columns, decrypted TLS gets its own columns (`plain_protocol`, `plain_info`)
+
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::ops::Range;

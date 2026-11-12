@@ -1,3 +1,13 @@
+//! # Live capture with libpcap / Npcap
+//! ## About:
+//! - Opens the interface that owns `server_ip` (default device for 0.0.0.0) and, best-effort,
+//!   loopback too, so a client on the same machine is captured
+//! - Kernel BPF filter `[host <ip> and] tcp|udp`, non-promiscuous, 32 MiB buffer, immediate mode
+//! - One blocking reader thread per device, frames sent as `RawFrame` over an mpsc channel
+//! - Dropping `Capture` sets the stop flag, threads exit within the 100 ms read timeout
+//! - Windows: `wpcap.dll` is loaded from `System32\Npcap` (not on the DLL search path),
+//!   device names are GUIDs so the description is used as label
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;

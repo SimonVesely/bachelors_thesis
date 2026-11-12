@@ -1,3 +1,11 @@
+//! # TLS key log
+//! ## About:
+//! - Process-wide map client_random -> {NSS label -> secret}
+//! - Filled by the FTPS server through rustls `KeyLog` (`record_secret`), read by decrypt.rs (`secret`)
+//! - `keylog()` exports it in NSS key log format (`LABEL client_random secret`, hex), which
+//!   Wireshark accepts as (Pre)-Master-Secret log file
+//! - Poisoned mutex is recovered instead of panicking
+
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::{LazyLock, Mutex};

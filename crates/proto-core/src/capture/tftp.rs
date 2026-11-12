@@ -1,3 +1,11 @@
+//! # TFTP packet parser (capture side)
+//! ## About:
+//! - Decodes RRQ/WRQ, DATA, ACK, ERROR (RFC 1350) and OACK (RFC 2347) from a UDP payload
+//! - `Data` borrows the payload, no file data is copied
+//! - `summary` - Info column text, `error_name` - meaning of TFTP error codes 0-8
+//! - Unknown opcode or broken layout -> `None`, shown as "Malformed TFTP packet"
+//! - Separate from proto-tftp/packet.rs on purpose: this one only reads, never encodes
+
 pub struct Request {
     pub filename: String,
     pub mode: String,

@@ -1,3 +1,12 @@
+//! # User database (redb + Argon2)
+//! ## About:
+//! - Persistent accounts for FTP, FTPS and SFTP when anonymous access is off
+//! - One redb table `users`: name -> Argon2 PHC hash, plaintext passwords are never stored
+//! - `verify` for an unknown user still runs Argon2 against `DUMMY_HASH`, so response time
+//!   doesn't reveal which user names exist
+//! - Names: 1-64 chars, no whitespace/control chars (must fit a single `USER` argument)
+//! - `UserDbError` implements `Display`, its text is shown directly in the GUI
+
 use std::fmt;
 use std::path::Path;
 use std::sync::LazyLock;

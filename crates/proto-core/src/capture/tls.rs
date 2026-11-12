@@ -1,3 +1,13 @@
+//! # TLS record parser
+//! ## About:
+//! - Splits a TCP payload into TLS records, `TlsHalf` carries the unfinished record and the CCS flag
+//!   between segments; a copy is stored in each `Packet` so it can be re-dissected later
+//! - `scan` - Info column text, reads the negotiated version from ServerHello `supported_versions`
+//! - `describe` - record layers with fields, full ClientHello/ServerHello: random, session ID,
+//!   cipher suites, extensions (SNI, supported_versions, key_share group)
+//! - Handshake records after ChangeCipherSpec are shown as encrypted
+//! - `Hello` parser and name tables are reused by decrypt.rs and dissect.rs
+
 use std::ops::Range;
 
 use super::layers::{Field, Layer};

@@ -1,3 +1,13 @@
+//! # Packet detail tree
+//! ## About:
+//! - `layers()` turns a `Packet` into Wireshark-style layers: Frame, link, IPv4, TCP/UDP and the
+//!   application layer (FTP, FTP-DATA, TLS, SSH, TFTP)
+//! - Every `Field` carries its byte range in the frame -> hex highlight and diagram in the GUI;
+//!   derived values (relative SEQ, stream index, analysis) have no range and are in `[brackets]`
+//! - FTP replies get their RFC 959 meaning, TFTP opcodes/errors and TCP options are named
+//! - `decrypted_layers()` adds one layer per decrypted TLS record (FTP lines or data preview)
+//! - TLS and SSH layers come from `tls::describe` and `ssh::describe`
+
 use std::ops::Range;
 use std::time::UNIX_EPOCH;
 
