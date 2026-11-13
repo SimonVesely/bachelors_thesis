@@ -1,3 +1,10 @@
+//! # TFTP packets
+//! ## About:
+//! - `Packet` - RRQ, WRQ, DATA, ACK, ERROR (RFC 1350) and OACK (RFC 2347)
+//! - `parse` / `encode` - wire format, options as NUL-terminated name/value pairs
+//! - Error code constants used by the server (`FILE_NOT_FOUND`, `ACCESS_VIOLATION`, ...)
+//! - `summary` - one-line text for the event log
+
 pub const NOT_DEFINED: u16 = 0;
 pub const FILE_NOT_FOUND: u16 = 1;
 pub const ACCESS_VIOLATION: u16 = 2;

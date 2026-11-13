@@ -1,3 +1,18 @@
+//! # TFTP server
+//! ## About:
+//! - Main socket on the configured port accepts only RRQ/WRQ, anything else gets ERROR 4
+//! - Every transfer gets its own `Transfer` task on a new UDP socket (new TID per RFC 1350),
+//!   bound to the same IP; a bind failure is answered with ERROR instead of killing the server
+//! - Lockstep: DATA waits for its ACK, retransmit after 2 s, abort after 5 retries;
+//!   datagrams from any other address are ignored
+//! - Options (RFC 2347): `blksize` 8..=`MAX_BLKSIZE` (1468), `tsize` answered with the real file
+//!   size (RRQ) or echoed (WRQ); only accepted options are confirmed with OACK
+//! - WRQ refused with ACCESS_VIOLATION when `allow_write` is false
+//! - Paths are relative to root (leading `/` ignored), `..`, `:` and symlink escapes ->
+//!   ACCESS_VIOLATION
+//! - Shutdown aborts running transfers with ERROR 0
+//! - `Log` emits every received/sent packet as `MessageEvent`, retransmissions marked
+
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};

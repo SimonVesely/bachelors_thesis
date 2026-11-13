@@ -63,6 +63,49 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! ## Transfer process:
+//! TFTP has no encryption and no login - every byte below is plaintext UDP.
+//! Real sessions, client `curl` -> FTPeek on 127.0.0.1:6969. C = client, S = server,
+//! sizes are UDP payload (4 B header + data).
+//! ```text
+//! Download (RRQ) of c.bin, 1300 B, blksize 512
+//!   C:60554 -> S:6969   RRQ  "c.bin" octet, tsize=0, blksize=512, timeout=6
+//!                       -> main socket only accepts the request; S opens a new UDP socket
+//!                          (new TID = new port) for this transfer
+//!   S:49495 -> C:60554  OACK tsize=1300, blksize=512        (timeout is not supported -> omitted)
+//!   C -> S:49495        ACK  block 0                        (client accepts the options)
+//!   S -> C              DATA block 1  (516 B = 4 + 512)
+//!   C -> S              ACK  block 1
+//!   S -> C              DATA block 2  (516 B)
+//!   C -> S              ACK  block 2
+//!   S -> C              DATA block 3  (280 B = 4 + 276)     < blksize -> last block
+//!   C -> S              ACK  block 3                        -> transfer complete, socket closed
+//!
+//! Upload (WRQ) of up.bin, 2500 B, blksize 1024
+//!   C:35624 -> S:6969   WRQ  "up.bin" octet, tsize=2500, blksize=1024, timeout=6
+//!   S:35582 -> C:35624  OACK tsize=2500, blksize=1024       (no options -> ACK block 0 instead)
+//!   C -> S              DATA block 1  (1028 B)
+//!   S -> C              ACK  block 1
+//!   C -> S              DATA block 2  (1028 B)
+//!   S -> C              ACK  block 2
+//!   C -> S              DATA block 3  (456 B = 4 + 452)     < blksize -> last block
+//!   S -> C              ACK  block 3                        -> file flushed, socket closed
+//!
+//! Error
+//!   C:54687 -> S:6969   RRQ  "missing.txt" octet, tsize=0, blksize=512, timeout=6
+//!   S:53545 -> C:54687  ERROR code 1 (File not found) "File not found"
+//! ```
+//! - Lockstep: only one unacknowledged packet at a time; every sent packet waits 2 s for
+//!   its reply, then it is retransmitted (logged as `[retransmission]`), after 5 retries the
+//!   transfer is dropped silently
+//! - RRQ: a duplicate ACK is ignored (no resend - avoids the Sorcerer's Apprentice bug);
+//!   WRQ: a duplicate of the previous DATA block makes the server resend its last ACK
+//! - Block numbers are `u16` and wrap around, so files larger than 65535 blocks still work
+//! - Options: `blksize` 8..=1468 (larger requests are lowered to 1468 = 1500 MTU - IP/UDP/TFTP
+//!   headers), `tsize` = real size for RRQ, echoed for WRQ, anything else is ignored
+//! - Datagrams from any other address/port than the transfer's client are ignored;
+//!   an ERROR from the client aborts the transfer, server shutdown sends ERROR 0
 
 mod packet;
 mod server;
