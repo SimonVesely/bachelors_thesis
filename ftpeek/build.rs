@@ -1,3 +1,10 @@
+//! # Build script
+//! ## About:
+//! - Windows MSVC: delay-loads `wpcap.dll`, so FTPeek starts without Npcap and only the capture
+//!   fails (proto_core::capture::live loads it at runtime)
+//! - Windows without `dx bundle`: embeds `assets/icon/ftpeek.ico` into the exe
+//!   (`dx bundle` sets DIOXUS_PRODUCT_NAME and embeds the icon itself)
+
 fn main() {
     let windows = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
     let msvc = std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");

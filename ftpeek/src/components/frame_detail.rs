@@ -1,19 +1,47 @@
+//! # Captured frame detail (pcap view)
+//! ## About:
+//! - Collapsible layer tree from `proto_core::capture::layers` (+ `decrypted_layers` with Decrypt on)
+//! - Hex dump (first `HEX_LIMIT` = 4096 B); clicking a layer or field highlights its byte range
+//! - With Decrypt on, a second hex block shows the decrypted plaintext
+//! ```text
+//! +------------------------------------------------------+
+//! | PACKET DETAIL                                        |
+//! |------------------------------------------------------|
+//! | ▾ Frame 60: 83 bytes on wire, 83 bytes captured on lo|
+//! |     Interface                  lo                    |
+//! |     Protocols in frame         eth:ethertype:..      |
+//! | ▸ Ethernet II, Src: 00:00:00:00:00:00, Dst: ...      |
+//! | ▸ Internet Protocol Version 4, Src: 192.168.1.1 ..   |
+//! | ▸ Transmission Control Protocol, Src Port: 37596 ... |
+//! | ▾ File Transfer Protocol (FTP)                       |
+//! |     Request command                             RETR |
+//! |     Request arg                           readme.txt |
+//! | FRAME BYTES (83 B)                                   |
+//! | +--------------------------------------------------+ |
+//! | | 0000  00 00 00 00 00 00 00 00 ... 08 00 45 00  ..| |
+//! | | 0040  e9 22 52 45 54 52 20 72 ... 2e 74 78   ."RE| |
+//! | +--------------------------------------------------+ |
+//! +------------------------------------------------------+
+//! ```
+
 use std::collections::HashSet;
 use std::ops::Range;
 
 use dioxus::prelude::*;
 use proto_core::capture::{Packet, decrypted_layers, layers};
 
+use crate::util::RollingLog;
+
 const HEX_LIMIT: usize = 4096;
 
 #[component]
 pub fn FrameDetail(
-    packets: Signal<Vec<Packet>>,
+    packets: Signal<RollingLog<Packet>>,
     selected: Signal<Option<usize>>,
     decrypt: Signal<bool>,
 ) -> Element {
     let idx = selected();
-    let packet = idx.and_then(|i| packets.read().get(i).cloned());
+    let packet = idx.and_then(|i| packets.read().get_abs(i).cloned());
     let mut collapsed = use_signal(HashSet::<String>::new);
     let mut highlight = use_signal(|| None::<(usize, Range<usize>)>);
 

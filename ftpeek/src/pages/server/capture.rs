@@ -1,13 +1,22 @@
+//! # `use_capture` hook
+//! ## About:
+//! - Starts `proto_core::capture` for the server's address, protocol and ports
+//! - Frames are dissected on a spawned task in batches every 50 ms (one signal write per batch)
+//!   into a `RollingLog` (oldest packets dropped above `MAX_LOG_ROWS`)
+//! - `wire` = pcap view active; if pcap is off or fails (no Npcap, no permission) it stays false
+//!   and the page falls back to the event log, the reason is shown in `note`
+//! - `stop` drops the `Capture` handle, captured packets stay visible
+
 use std::time::Duration;
 
 use dioxus::prelude::*;
 use proto_core::capture::{Capture, CaptureConfig, Dissector, Packet};
 
-use crate::util::MAX_LOG_ROWS;
+use crate::util::RollingLog;
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct CaptureState {
-    pub packets: Signal<Vec<Packet>>,
+    pub packets: Signal<RollingLog<Packet>>,
     pub enabled: Signal<bool>,
     pub wire: Signal<bool>,
     pub note: Signal<Option<String>>,
@@ -16,7 +25,7 @@ pub struct CaptureState {
 
 pub fn use_capture() -> CaptureState {
     CaptureState {
-        packets: use_signal(Vec::new),
+        packets: use_signal(RollingLog::default),
         enabled: use_signal(|| true),
         wire: use_signal(|| false),
         note: use_signal(|| None),
@@ -55,7 +64,6 @@ impl CaptureState {
                 while let Ok(frame) = frame_rx.try_recv() {
                     batch.extend(dissector.dissect(frame));
                 }
-                batch.truncate(MAX_LOG_ROWS.saturating_sub(packets.read().len()));
                 if !batch.is_empty() {
                     packets.write().extend(batch);
                 }

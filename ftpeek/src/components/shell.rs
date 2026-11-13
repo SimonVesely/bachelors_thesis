@@ -1,3 +1,27 @@
+//! # App frame
+//! ## About:
+//! - Header (hidden on the server page to save space), router outlet, `?` button
+//! - About modal: author, license, source link, crates used; closes on backdrop click, X or Escape
+//! ```text
+//! +-----------------------------------------------------------------------+
+//! | [icon] VUT FEKT — SEMESTER PROJECT — APPLICATION FOR ANALYZING ...    |
+//! |        FTPeek                                                         |
+//! +-----------------------------------------------------------------------+
+//! |                         Outlet (current route)                        |
+//! |                                                                  (?)  |
+//! +-----------------------------------------------------------------------+
+//!
+//! (?) opens:  +-----------------------------------------------+
+//!             | FTPEEK                                      x |
+//!             | Application for analyzing the communication...|
+//!             | AUTHOR                           Simon Veselý |
+//!             | LICENSE                               GPL-3.0 |
+//!             | SOURCE  https://github.com/SimonVesely/...    |
+//!             | BUILT WITH                                    |
+//!             | [Rust] [Tokio] [Dioxus] [rustls] [russh] ...  |
+//!             +-----------------------------------------------+
+//! ```
+
 use crate::Route;
 use dioxus::prelude::*;
 

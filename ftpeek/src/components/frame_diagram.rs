@@ -1,5 +1,36 @@
+//! # Captured frame structure (pcap view)
+//! ## About:
+//! - Encapsulation strip: link layer -> IPv4 -> TCP/UDP -> payload with byte sizes
+//! - Transport header as RFC-style 32-bit rows (TCP RFC 9293 or UDP RFC 768), each field a cell
+//!   sized by its bit width, with value (and relative SEQ/ACK)
+//! ```text
+//!                          Encapsulation
+//! +-------------+-------------+-------------+-------------+
+//! | ETHERNET II |    IPV4     |     TCP     |     FTP     |
+//! |    14 B     |    20 B     |    32 B     |    17 B     |
+//! +-------------+-------------+-------------+-------------+
+//!              TCP header - 32 bytes (RFC 9293)
+//! 0            8            16            24            31
+//! +---------------------------+---------------------------+
+//! |        SOURCE PORT        |     DESTINATION PORT      |
+//! |           37596           |            21             |
+//! +---------------------------+---------------------------+
+//! |                    SEQUENCE NUMBER                    |
+//! |               1172349114 (relative 67)                |
+//! +-------------------------------------------------------+
+//! |                 ACKNOWLEDGMENT NUMBER                 |
+//! +------+------+-------------+---------------------------+
+//! | OFF  | RSV  |    FLAGS    |          WINDOW           |
+//! |  8   |  0   |  PSH, ACK   |            64             |
+//! +------+------+-------------+---------------------------+
+//! |         CHECKSUM          |      URGENT POINTER       |
+//! +---------------------------+---------------------------+
+//! ```
+
 use dioxus::prelude::*;
 use proto_core::capture::{LinkLayer, Packet, TcpOption, Transport, flag_names};
+
+use crate::util::RollingLog;
 
 const LEFT: f64 = 24.0;
 const BIT: f64 = 16.0;
@@ -9,8 +40,8 @@ const ROW: f64 = 34.0;
 type Cell = (usize, u32, u32, String, String, &'static str);
 
 #[component]
-pub fn FrameDiagram(packets: Signal<Vec<Packet>>, selected: Signal<Option<usize>>) -> Element {
-    let packet = selected().and_then(|i| packets.read().get(i).cloned());
+pub fn FrameDiagram(packets: Signal<RollingLog<Packet>>, selected: Signal<Option<usize>>) -> Element {
+    let packet = selected().and_then(|i| packets.read().get_abs(i).cloned());
     rsx! {
         div { class: "diagram-panel",
             div { class: "diagram-panel__header", "Packet structure" }

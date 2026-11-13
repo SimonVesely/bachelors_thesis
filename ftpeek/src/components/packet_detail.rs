@@ -1,9 +1,36 @@
+//! # Event detail (event log view)
+//! ## About:
+//! - Detail of one `MessageEvent`: time since the first event, direction, kind, endpoints,
+//!   length, encryption
+//! - Protocol rows from `Spec::detail_rows`, titles from `Spec::app_title` / `transport_title`
+//! - Hex + ASCII dump of the raw bytes
+//! ```text
+//! +------------------------------------------------------+
+//! | PACKET DETAIL                                        |
+//! |------------------------------------------------------|
+//! | ▾ Frame 65: 17 bytes                                 |
+//! |     Time since first packet              24.724870 s |
+//! |     Frame length                            17 bytes |
+//! |     Kind                              Command / reply|
+//! | ▾ Transmission Control Protocol                      |
+//! |     Direction                        Client → server |
+//! |     Peer address                    192.168.1.1:49990|
+//! |     Local address                   192.168.1.10:21  |
+//! | ▾ Application (Ftp)                                  |
+//! |     (rows from Spec::detail_rows, e.g. TFTP opcode)  |
+//! |     Info                             RETR readme.txt |
+//! | RAW BYTES                                            |
+//! | | 0000  52 45 54 52 20 72 65 61 ...   RETR readme.txt|
+//! +------------------------------------------------------+
+//! ```
+
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use dioxus::prelude::*;
 use proto_core::{Direction, EventKind, MessageEvent};
 
 use crate::protocols::{Proto, Rows};
+use crate::util::RollingLog;
 
 struct DetailView {
     frame_title: String,
@@ -101,12 +128,14 @@ fn build_view(idx: usize, e: &MessageEvent, t0: SystemTime) -> DetailView {
 }
 
 #[component]
-pub fn PacketDetail(logs: Signal<Vec<MessageEvent>>, selected: Signal<Option<usize>>) -> Element {
+pub fn PacketDetail(
+    logs: Signal<RollingLog<MessageEvent>>,
+    selected: Signal<Option<usize>>,
+) -> Element {
     let idx = selected();
     let view = idx.and_then(|i| {
         let all = logs.read();
-        let t0 = all.first().map_or(UNIX_EPOCH, |e| e.timestamp);
-        all.get(i).map(|e| build_view(i, e, t0))
+        all.get_abs(i).map(|e| build_view(i, e, all.start()))
     });
 
     let mut frame_open = use_signal(|| true);

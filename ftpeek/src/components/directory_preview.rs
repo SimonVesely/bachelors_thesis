@@ -1,3 +1,20 @@
+//! # Root directory tree
+//! ## About:
+//! - Live view of the server root, re-read every second so uploads and deletes appear
+//! - Lazy expandable folders (only expanded ones are read), dirs first, sorted by name
+//! - Long paths are shortened from the start, full path in the tooltip
+//! ```text
+//! +-----------------------------------+
+//! | ROOT DIRECTORY                    |
+//! | …/home/user/FTPeek                |
+//! |-----------------------------------|
+//! | ▾ 📂 docs                         |
+//! |     📄 notes.txt             18 B |
+//! | ▸ 📁 uploads                      |
+//! |   📄 readme.txt              10 B |
+//! +-----------------------------------+
+//! ```
+
 use dioxus::prelude::*;
 use std::collections::HashSet;
 use std::fs;

@@ -1,3 +1,17 @@
+//! # Placeholder for unimplemented modes
+//! ## About:
+//! - Shown for Client only and Fold modes (planned for the bachelor's thesis), links back to the menu
+//! ```text
+//! <- back
+//! CLIENT ONLY ISN'T AVAILABLE YET
+//! This build only implements the protocol servers. ...
+//! +------------------------------------------+
+//! || NOT IMPLEMENTED                         |
+//! || Pick "Server only" for now - ...        |
+//! || Choose server mode                      |
+//! +------------------------------------------+
+//! ```
+
 use crate::Route;
 use dioxus::prelude::*;
 

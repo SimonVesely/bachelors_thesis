@@ -1,3 +1,8 @@
+//! # Reusable UI components
+//! ## About:
+//! - Protocol-independent; anything protocol-specific is asked from `Spec`
+//! - Re-exports every component used by `main.rs` and the server page
+
 mod client_list;
 mod directory_preview;
 mod frame_detail;

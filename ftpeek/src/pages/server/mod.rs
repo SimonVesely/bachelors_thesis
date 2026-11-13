@@ -1,3 +1,26 @@
+//! # Server page (`Status`)
+//! ## About:
+//! - Owns all state of one server run: options, root dir, logs, selection, clients, filter,
+//!   shutdown sender, capture
+//! - Start: creates root (default `~/FTPeek`), picks bind IP from the interface picker, opens the
+//!   user DB unless anonymous, starts capture, spawns `spec.serve(ServeCtx)` and the event pump
+//!   (`track_client` + `logs`)
+//! - Stop: sends on the shutdown broadcast; the serve future ends, capture stops, `running` resets
+//! - Layout: `ControlBar` + 4 named panes placed by CSS grid areas (`pane--log`, `pane--detail`,
+//!   `pane--dir`, `pane--diagram`); detail/diagram switch between pcap view (`Frame*`) and
+//!   event view (`Packet*`)
+//! ```text
+//! +---------------------------------------------------------------------------------+
+//! | ControlBar                                                     | ClientList     |
+//! +--------------------------------------+------------------------+-----------------+
+//! | PacketLog                            | FrameDetail /          | DirectoryPreview|
+//! |                                      | PacketDetail           |                 |
+//! |                                      +------------------------+-----------------+
+//! |                                      | FrameDiagram / PacketDiagram             |
+//! |                                      |                                          |
+//! +--------------------------------------+------------------------------------------+
+//! ```
+
 mod capture;
 mod control_bar;
 
@@ -14,7 +37,7 @@ use crate::components::{
     PacketLog, track_client,
 };
 use crate::protocols::{Options, Proto, ServeCtx};
-use crate::util::MAX_LOG_ROWS;
+use crate::util::RollingLog;
 use crate::{AppState, Route};
 
 use capture::use_capture;
@@ -34,7 +57,7 @@ pub fn Status(mode: String, protocol: Proto) -> Element {
     let root_dir = use_signal(default_root);
     let options = use_signal(|| Options::defaults(spec));
     let mut running = use_signal(|| false);
-    let mut logs = use_signal(Vec::<MessageEvent>::new);
+    let mut logs = use_signal(RollingLog::<MessageEvent>::default);
     let mut selected = use_signal(|| None::<usize>);
     let mut clients = use_signal(Vec::<ClientInfo>::new);
     let filter = use_signal(|| None::<u64>);
@@ -101,9 +124,7 @@ pub fn Status(mode: String, protocol: Proto) -> Element {
         spawn(async move {
             while let Some(event) = rx.recv().await {
                 track_client(&mut clients.write(), &event);
-                if logs.read().len() < MAX_LOG_ROWS {
-                    logs.write().push(event);
-                }
+                logs.write().push(event);
             }
         });
 

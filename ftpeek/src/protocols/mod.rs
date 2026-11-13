@@ -1,3 +1,15 @@
+//! # Protocol registry and `Spec` trait
+//! ## About:
+//! - `Proto` - list of protocols (`Proto::ALL`), URL segment via `Display`/`FromStr`,
+//!   `Proto::of` maps `proto_core::Protocol` of an event back to its spec
+//! - `Spec` - everything protocol-specific the GUI needs: settings, capture ports, `serve`,
+//!   and how events are shown (columns, detail rows, diagram cells, client tracking);
+//!   defaults fit FTP-like text protocols
+//! - `Opt` / `Options` - declarative settings schema (port input or dropdown) and its values
+//! - `ServeCtx` - what the page hands to `serve` (bind IP, root, users, options, events, shutdown)
+//! - `Channel` (`TLS` / `SSH`) - name of the encryption layer shown in log and diagrams
+//! - `track_common` - packet and data byte counters shared by all protocols
+
 mod ftp;
 mod ftps;
 mod sftp;

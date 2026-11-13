@@ -1,3 +1,10 @@
+//! # FTPS spec
+//! ## About:
+//! - FTP settings + "FTPS mode" dropdown: explicit (AUTH TLS, port 21) / implicit (TLS from the
+//!   first byte, port 990); switching mode moves the port between 21 and 990 if it wasn't changed
+//! - `can_decrypt` = true - captured TLS can be decrypted with keys logged by proto-ftps
+//! - Hint about the self-signed certificate generated on every start
+
 use proto_core::{MessageEvent, Protocol};
 use proto_ftps::{FtpsMode, FtpsServerConfig};
 

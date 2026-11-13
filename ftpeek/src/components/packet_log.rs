@@ -1,3 +1,27 @@
+//! # Packet / event table
+//! ## About:
+//! - One table for both views: captured `Packet`s (pcap) or `MessageEvent`s (event log)
+//! - Virtualized: only rows in the viewport + `OVERSCAN` are rendered (fixed `ROW_HEIGHT`),
+//!   so 100 000 rows stay smooth
+//! - Autoscroll toggle, Clear, client filter (by session addresses), Decrypt toggle
+//!   (FTPS pcap view, swaps in decrypted Protocol/Info)
+//! - Group separators: new TCP stream (pcap) or `Spec::starts_group` (event log)
+//! - Rolling: above `MAX_LOG_ROWS` the oldest rows are dropped, `No.` keeps counting, the count
+//!   label shows how many were dropped and a scrolled-up view is shifted back by the dropped rows
+//! ```text
+//! +-----------------------------------------------------------------------------------------+
+//! | PACKET LOG  74 packets          [All clients        v] [x] Auto-scroll  [CLEAR]         |
+//! |-----------------------------------------------------------------------------------------|
+//! | NO. TIME      SOURCE            DESTINATION       PROTOCOL LENGTH INFO                  |
+//! |=========================================================================================| <- group
+//! | 60  0.069011  192.168.1.1:37596   192.168.1.10:21      FTP        83   Request: RETR .. | request
+//! | 61  0.070121  192.168.1.1:21      192.168.1.10:37596   FTP       105   Response: 150 .. | reply
+//! | 62  0.110558  192.168.1.1:37596   192.168.1.10:21      TCP        66   37596 → 21 [ACK] | tcp
+//! | 63  0.250669  192.168.1.1:50000   192.168.1.10:55736   FTP-DATA   76   FTP Data: 10 B   | data
+//! +-----------------------------------------------------------------------------------------a+
+//!   (FTPS + pcap: extra [Decrypt] toggle in the header)
+//! ```
+
 use std::net::SocketAddr;
 use std::time::SystemTime;
 
@@ -7,7 +31,7 @@ use proto_core::{Direction, EventKind, MessageEvent};
 
 use super::ClientInfo;
 use crate::protocols::Proto;
-use crate::util::MAX_LOG_ROWS;
+use crate::util::RollingLog;
 
 const ROW_HEIGHT: f64 = 20.0;
 const OVERSCAN: usize = 15;
@@ -99,8 +123,8 @@ fn elapsed(t: SystemTime, t0: SystemTime) -> String {
 
 #[component]
 pub fn PacketLog(
-    logs: Signal<Vec<MessageEvent>>,
-    packets: Signal<Vec<Packet>>,
+    logs: Signal<RollingLog<MessageEvent>>,
+    packets: Signal<RollingLog<Packet>>,
     wire: Signal<bool>,
     selected: Signal<Option<usize>>,
     clients: Signal<Vec<ClientInfo>>,
@@ -129,9 +153,10 @@ pub fn PacketLog(
         })
         .unwrap_or_default();
 
-    let (rows, shown, total) = if wire() {
+    let (rows, shown, total, dropped) = if wire() {
         let all = packets.read();
-        let t0 = all.first().map_or(SystemTime::UNIX_EPOCH, |p| p.timestamp);
+        let t0 = all.start();
+        let base = all.dropped();
         let shown: Vec<usize> = (0..all.len())
             .filter(|&i| {
                 only.is_none() || addrs.contains(&all[i].src) || addrs.contains(&all[i].dst)
@@ -141,13 +166,14 @@ pub fn PacketLog(
             &shown,
             scroll_top(),
             view_height(),
-            |i| packet_row(i + 1, &all[i], t0, current, decrypt()),
+            |i| packet_row(base + i + 1, &all[i], t0, current, decrypt()),
             |i| packet_starts_group(&all[i]),
         );
-        (rows, shown.len(), all.len())
+        (rows, shown.len(), all.len(), base)
     } else {
         let all = logs.read();
-        let t0 = all.first().map_or(SystemTime::UNIX_EPOCH, |e| e.timestamp);
+        let t0 = all.start();
+        let base = all.dropped();
         let shown: Vec<usize> = (0..all.len())
             .filter(|&i| only.is_none_or(|id| all[i].session == id))
             .collect();
@@ -155,10 +181,10 @@ pub fn PacketLog(
             &shown,
             scroll_top(),
             view_height(),
-            |i| event_row(i + 1, &all[i], t0, current),
+            |i| event_row(base + i + 1, &all[i], t0, current),
             |i| Proto::of(all[i].protocol).spec().starts_group(&all[i]),
         );
-        (rows, shown.len(), all.len())
+        (rows, shown.len(), all.len(), base)
     };
     let (first, last) = window(shown, scroll_top(), view_height());
 
@@ -167,14 +193,30 @@ pub fn PacketLog(
     } else {
         format!("{total} packets")
     };
-    if total >= MAX_LOG_ROWS {
-        count_label += " - log full, Clear to continue";
+    if dropped > 0 {
+        count_label += &format!(" (oldest {dropped} dropped)");
     }
     let client_options: Vec<(u64, String)> = clients
         .read()
         .iter()
         .map(|c| (c.session, c.label()))
         .collect();
+
+    let mut seen_dropped = use_signal(|| 0usize);
+    use_effect(move || {
+        let dropped = match wire() {
+            true => packets.read().dropped(),
+            false => logs.read().dropped(),
+        };
+        let before = *seen_dropped.peek();
+        if dropped > before && !*autoscroll.peek() && filter.peek().is_none() {
+            let shift = (dropped - before) as f64 * ROW_HEIGHT;
+            let _ = document::eval(&format!(
+                "var el = document.getElementById('packet-scroll'); if (el) {{ el.scrollTop = Math.max(0, el.scrollTop - {shift}); }}"
+            ));
+        }
+        seen_dropped.set(dropped);
+    });
 
     use_effect(move || {
         let count = logs.read().len() + packets.read().len();

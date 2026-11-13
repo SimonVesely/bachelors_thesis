@@ -1,3 +1,12 @@
+//! # FTP spec
+//! ## About:
+//! - Settings: PI (control) port 21, active data port 20, passive range 50000-50019
+//!   (reused by ftps.rs through `pub(super)` consts)
+//! - `config` builds `FtpServerConfig` from options, `ports` = control + active + passive range
+//!   for the capture filter
+//! - `track_login` - user from `USER`, logged in on `230`, logged out on `530`/`234`
+//!   (AUTH TLS resets login), data bytes via `track_common`; shared with FTPS
+
 use proto_core::{Direction, EventKind, MessageEvent, Protocol};
 use proto_ftp::FtpServerConfig;
 

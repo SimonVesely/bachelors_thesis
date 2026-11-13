@@ -1,3 +1,20 @@
+//! # Protocol menu
+//! ## About:
+//! - One card per `Proto::ALL`, label and description from its `Spec`
+//! - Card links to `Route::Status { mode, protocol }`
+//! ```text
+//! <- change mode
+//! CHOOSE PROTOCOL
+//! Mode: server
+//! +----------------------------------+ +----------------------------------+
+//! | FTP                              | | FTPS                             |
+//! | Plaintext control channel, TCP/21| | FTP over TLS (explicit or impl.) |
+//! +----------------------------------+ +----------------------------------+
+//! | TFTP                             | | SFTP                             |
+//! | Lockstep opcodes over UDP/69     | | Binary subsystem over SSH2       |
+//! +----------------------------------+ +----------------------------------+
+//! ```
+
 use crate::Route;
 use crate::protocols::Proto;
 use dioxus::prelude::*;

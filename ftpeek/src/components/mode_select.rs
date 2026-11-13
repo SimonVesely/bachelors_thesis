@@ -1,3 +1,26 @@
+//! # Main menu
+//! ## About:
+//! - Mode cards: Server only (implemented), Client only and Fold (lead to `Unavailable`)
+//! - Network interface picker: detected NICs + Loopback (127.0.0.1) + All interfaces (0.0.0.0),
+//!   stored in `AppState::selected_interface`
+//! - Anonymous access toggle and Manage users dialog, hint says who will be able to log in
+//! ```text
+//! CHOOSE APPLICATION MODE
+//! Select how this instance of the app should run.
+//! +--------------------+ +---------------[SOON]+ +---------------[SOON]+
+//! || SERVER ONLY       | | CLIENT ONLY         | | FOLD                |
+//! || Run a protocol    | | Connect to an       | | Server + client     |
+//! || server that ...   | | existing server ... | | together ...        |
+//! +--------------------+ +---------------------+ +---------------------+
+//! -----------------------------------------------------------------------
+//! NETWORK INTERFACE
+//! [ eth0 — 192.0.2.2                    v]   (+ Loopback, All interfaces)
+//! -----------------------------------------------------------------------
+//! USER ACCESS
+//! (o=) Anonymous access   [Manage users]
+//! Any user name and password is accepted. The user database is ignored.
+//! ```
+
 use crate::components::UserManager;
 use crate::util::plural;
 use crate::{AppState, Route};

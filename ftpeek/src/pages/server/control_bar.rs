@@ -1,3 +1,22 @@
+//! # Server control bar
+//! ## About:
+//! - Title, back link, status chips (interface, access mode, listening/stopped), Start/Stop
+//! - Settings rendered from `spec.options()`: dropdowns before Root directory, ports after it;
+//!   all inputs are disabled while the server runs
+//! - Root directory input with native folder picker (rfd), pcap checkbox and capture note
+//! - Protocol hints and the last server error
+//! - Client list on the right side (filters the log by session)
+//! ```text
+//! +--------------------------------------------------------------------------+----------------------+
+//! | [<- Main menu]  FTP SERVER                               [START SERVER]  | CLIENTS 2 connected  |
+//! |                 (Interface eth0 · 192.0.2.2) (Access anonymous) (o stopped)| #1 192.0.2.2:37582 |
+//! |--------------------------------------------------------------------------|    anonymous  23 pkts|
+//! | Root directory                  PI port  Active port Passive from Passive to Packet capture     |
+//! | [/home/simon/FTPeek ] [Browse…] [21  ^v] [20     ^v] [50000  ^v] [50019 ^v] [x] pcap (Wireshark)|
+//! | hints / last error                                          live on eth0 + lo                   |
+//! +--------------------------------------------------------------------------+----------------------+
+//! ```
+
 use dioxus::prelude::*;
 
 use super::capture::CaptureState;

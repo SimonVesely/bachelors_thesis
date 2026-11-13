@@ -1,3 +1,11 @@
+//! # SFTP spec
+//! ## About:
+//! - Settings: TCP port 22 (2222 if the system sshd uses 22)
+//! - Channel `SSH`; SSH-level events (auth, channel, subsystem) are told apart from SFTP packets
+//! - Event view decodes the SFTP header from raw bytes: length, type name (SSH_FXP_*), request id
+//! - Client tracking: user and login state from SSH_MSG_USERAUTH_*, data bytes from READ/WRITE
+//! - Hints: host key changes on every start, SSH can't be decrypted in pcap view
+
 use proto_core::{EventKind, MessageEvent, Protocol};
 use proto_sftp::SftpServerConfig;
 

@@ -1,3 +1,22 @@
+//! # Connected clients
+//! ## About:
+//! - `ClientInfo` per session: address(es), user, login state, connected, packets, data bytes,
+//!   current transfer
+//! - `track_client` updates the list from every `MessageEvent` (session 0 = not a client event),
+//!   protocol-specific parts via `Spec::track`
+//! - Clicking a client filters the log to its session (all its addresses, incl. data connections)
+//! ```text
+//! +------------------------------------------+
+//! | CLIENTS  2 connected               CLEAR |
+//! |------------------------------------------|
+//! | o #1 192.0.2.2:37582             23 pkts |
+//! |      anonymous                     247 B |
+//! | o #2 192.0.2.2:37596             25 pkts |
+//! |      user                           10 B |
+//! +------------------------------------------+
+//!   o = connected (green) / disconnected (grey)
+//! ```
+
 use std::net::SocketAddr;
 
 use dioxus::prelude::*;

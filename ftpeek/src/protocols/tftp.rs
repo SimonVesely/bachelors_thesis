@@ -1,3 +1,13 @@
+//! # TFTP spec
+//! ## About:
+//! - Settings: "Uploads (WRQ)" allowed / read only (`allow_write`), UDP port 69
+//! - `login` = false - no user database, access chip shows "none"
+//! - Transport title UDP; detail rows and diagram cells decoded from the raw packet
+//!   (opcode, block, file name, mode, options, error code)
+//! - Every client packet starts a group in the log (lockstep exchange is easier to follow)
+//! - Client tracking: download/upload file name, data bytes without retransmissions,
+//!   disconnected after the last block or an ERROR
+
 use proto_core::{Direction, EventKind, MessageEvent, Protocol};
 use proto_tftp::{Packet, TftpServerConfig, error_name};
 

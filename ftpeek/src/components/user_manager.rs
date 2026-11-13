@@ -1,3 +1,31 @@
+//! # User database dialog
+//! ## About:
+//! - `open_user_db` - `./database/users.redb`, falls back to the OS data dir
+//!   (`directories::ProjectDirs`) when the working directory isn't writable (e.g. macOS .app)
+//! - Dialog: list, add (password + confirmation), delete with inline confirm;
+//!   Enter adds, Escape closes
+//! - `refresh_user_names` keeps `AppState::user_names` in sync after every change
+//! - Database errors are shown inline instead of disabling the app
+//! ```text
+//! +--------------------------------------------------------+
+//! | USER DATABASE                                        x |
+//! | Accounts that may log in when anonymous access is off. |
+//! | Passwords are stored only as Argon2id hashes ...       |
+//! | +----------------------------------------------------+ |
+//! | | USER NAME             PASSWORD                     | |
+//! | | user                  ********       [Delete]      | |
+//! | |                                  [Confirm delete]  | |
+//! | +----------------------------------------------------+ |
+//! | ------------------------------------------------------ |
+//! | ADD USER                                               |
+//! | [User name                                          ]  |
+//! | [Password                                           ]  |
+//! | [Confirm password                                   ]  |
+//! | [ADD USER]                                             |
+//! | Stored in /.../database/users.redb                     |
+//! +--------------------------------------------------------+
+//! ```
+
 use std::path::PathBuf;
 use std::sync::Arc;
 

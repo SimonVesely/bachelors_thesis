@@ -1,3 +1,14 @@
+//! # Setting input
+//! ## About:
+//! - Renders one `Opt`: `Port` -> number input (only valid u16 is accepted), `Choice` -> select
+//! - Every change goes through `Spec::on_change`, so a protocol can adjust related settings
+//!   (e.g. FTPS mode switches the port)
+//! ```text
+//! Opt::Port                Opt::Choice
+//! PI port                  FTPS mode
+//! [ 21          ^v]        [ Explicit (AUTH TLS)   v]
+//! ```
+
 use dioxus::prelude::*;
 
 use crate::protocols::{Opt, Options, Proto};

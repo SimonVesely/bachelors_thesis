@@ -1,18 +1,43 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+//! # Event structure (event log view)
+//! ## About:
+//! - SVG of one `MessageEvent` as an "FTPeek Event Record": direction, kind, protocol, length,
+//!   endpoints, timestamp, security (plaintext / TLS / SSH encrypted) and data
+//! - Protocol-specific cells from `Spec::diagram_cells` (e.g. TFTP opcode / block / data)
+//! ```text
+//!                       FTPeek Event Record
+//! <------------------------------------------------------------>
+//! +--------------+--------------+--------------+--------------+
+//! |  DIRECTION   |     KIND     |   PROTOCOL   |    LENGTH    |
+//! |      IN      |   MESSAGE    |     FTP      |     17 B     |
+//! +--------------+--------------+--------------+--------------+
+//! |                      SOURCE ADDRESS                       |
+//! |                     192.0.2.2:49990                       |
+//! +-----------------------------------------------------------+
+//! |                    DESTINATION ADDRESS                    |
+//! |                       192.0.2.2:21                        |
+//! +-----------------------------+-----------------------------+
+//! |          TIMESTAMP          |          SECURITY           |
+//! |          +24.725 s          |          PLAINTEXT          |
+//! +-----------------------------+-----------------------------+
+//! |                      DATA (variable)                      |
+//! |                     RETR readme.txt                       |
+//! +-----------------------------------------------------------+
+//! ```
+
+use std::time::SystemTime;
 
 use dioxus::prelude::*;
 use proto_core::{Direction, EventKind, MessageEvent};
 
 use crate::protocols::Proto;
-use crate::util::shorten;
+use crate::util::{RollingLog, shorten};
 
 #[component]
-pub fn PacketDiagram(logs: Signal<Vec<MessageEvent>>, selected: Signal<Option<usize>>) -> Element {
+pub fn PacketDiagram(logs: Signal<RollingLog<MessageEvent>>, selected: Signal<Option<usize>>) -> Element {
     let idx = selected();
     let entry = idx.and_then(|i| {
         let all = logs.read();
-        let t0 = all.first().map_or(UNIX_EPOCH, |e| e.timestamp);
-        all.get(i).cloned().map(|e| (e, t0))
+        all.get_abs(i).cloned().map(|e| (e, all.start()))
     });
 
     rsx! {
