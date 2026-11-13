@@ -738,7 +738,7 @@ input, select, textarea,
   font-family: var(--font-mono);
   font-size: 0.6875rem;
 }
-.packet-table col.col-no    { width: 7ch; }
+.packet-table col.col-no    { width: 9ch; }
 .packet-table col.col-time  { width: 12ch; }
 .packet-table col.col-src   { width: 20ch; }
 .packet-table col.col-dst   { width: 20ch; }

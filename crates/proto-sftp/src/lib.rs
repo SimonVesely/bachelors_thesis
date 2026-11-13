@@ -145,12 +145,14 @@ use proto_core::{Direction, EventKind, EventSender, UserDb, next_session_id};
 use russh::keys::{Algorithm, HashAlg, PrivateKey};
 use russh::server::{Auth, ChannelOpenHandle, Msg, Session};
 use russh::{Channel, ChannelId, Disconnect, MethodKind, MethodSet, Pty};
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tokio::sync::{Semaphore, broadcast};
 
 use crate::log::{Log, Tee};
 
 pub const MAX_CLIENTS: usize = 200;
+const REQUEST_BUFFER: usize = 16 << 20;
 
 #[derive(Clone)]
 pub struct SftpServerConfig {
@@ -336,7 +338,13 @@ impl russh::server::Handler for SshSession {
             ("sftp", Some(channel)) => {
                 session.channel_success(channel_id)?;
                 self.reply("SSH_MSG_CHANNEL_SUCCESS, SFTP started");
-                let stream = Tee::new(channel.into_stream(), self.log.clone());
+                let (mut from_client, to_client) = tokio::io::split(channel.into_stream());
+                let (requests, mut pipe) = tokio::io::simplex(REQUEST_BUFFER);
+                tokio::spawn(async move {
+                    let _ = tokio::io::copy(&mut from_client, &mut pipe).await;
+                    let _ = pipe.shutdown().await;
+                });
+                let stream = Tee::new(tokio::io::join(requests, to_client), self.log.clone());
                 let fs = fs::Fs::new(self.cfg.root_dir.clone());
                 russh_sftp::server::run(stream, fs).await;
             }
