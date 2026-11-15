@@ -13,8 +13,8 @@
 //!   - 30 s timeout, PROT P wraps the data stream in TLS (`TlsRole::Data`)
 //! - Transfers: LIST/NLST/MLSD listing, RETR with REST offset, STOR/APPE; errors mapped to
 //!   425/426/451/522/535
-//! - Every command, reply, TCP open/close, TLS step and data transfer is emitted as `MessageEvent`;
-//!   PASS is masked in the log
+//! - Every command, reply, TCP open/close, TLS step and data transfer is emitted as `MessageEvent`,
+//!   including PASS in plain text (intentional - students should see what FTP sends)
 //! - Non-UTF-8 command bytes are decoded lossily, Telnet IAC sequences are dropped
 
 use std::io;
@@ -1213,13 +1213,6 @@ async fn send(
 }
 
 fn log_incoming(ep: Endpoints, events: &EventSender, line: &str) {
-    let line = match line.get(..5) {
-        Some(verb) if verb.eq_ignore_ascii_case("PASS ") => {
-            let length = line.trim_end().chars().count().saturating_sub(5);
-            format!("PASS ******** ({length} characters)\r\n")
-        }
-        _ => line.to_string(),
-    };
     emit(
         events,
         ep,
