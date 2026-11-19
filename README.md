@@ -13,8 +13,7 @@
 
 **Application for analyzing the communication of file transfer protocols**
 
-A server-side application for demonstrating and analyzing file-transfer
-protocol communication. Built entirely in Rust.
+A server-side application for demonstrating and analyzing file-transfer communication supporting multiple protocols. Built entirely in Rust.
 
 ## Graphical User Interface made with Dioxus
 <p align="center">
@@ -25,7 +24,7 @@ protocol communication. Built entirely in Rust.
 
 This repository is developed in two stages:
 
-- **Semester project (current)** — **server only**, for all four protocols.
+- **Semester thesis (current)** — **server only**, for all four protocols.
   Each server is standalone and interoperates with existing clients
   (FileZilla, curl, lftp, ...) —
   standards-compliant server whose communication can be logged and
@@ -49,8 +48,8 @@ protocols.
 | Protocol | Transport      | Implementation                    | Verified against       |
 |----------|-----------------|-------------------------------------|--------------------------|
 | FTP      | TCP, plaintext  | raw, hand-written                   | FileZilla, curl, lftp    |
-| FTPS     | TCP + TLS       | FTP extension with `rustls` wrapper | FileZilla, lftp          |
-| TFTP     | UDP             | raw, hand-written                   | `curl`                   |
+| FTPS     | TCP + TLS       | FTP extension with `rustls`         | FileZilla, lftp          |
+| TFTP     | UDP             | raw, hand-written                   | curl, Cisco IOS          |
 | SFTP     | SSH2 subsystem  | built on `russh`                    | FileZilla                |
 
 ## Project layout
