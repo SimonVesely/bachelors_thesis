@@ -172,7 +172,7 @@ fn main() {
 #[component]
 fn App() -> Element {
     let interfaces = proto_core::list_interfaces();
-    let default_selection = interfaces.first().map(|i| i.ip.to_string());
+    let default_selection = Some("127.0.0.1".to_string());
 
     use_context_provider(|| {
         let users = components::open_user_db();
