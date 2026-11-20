@@ -179,9 +179,11 @@ where
     let mut reader = BufReader::new(read_half);
     let mut writer = write_half;
 
-    let banner = match protocol {
-        Protocol::Ftps => "220 FTPeek FTPS server ready.\r\n",
-        _ => "220 FTPeek FTP server ready.\r\n",
+    let banner = match (protocol, users.is_none()) {
+        (Protocol::Ftps, true) => "220 FTPeek FTPS server ready (anonymous access enabled).\r\n",
+        (Protocol::Ftps, false) => "220 FTPeek FTPS server ready.\r\n",
+        (_, true) => "220 FTPeek FTP server ready (anonymous access enabled).\r\n",
+        (_, false) => "220 FTPeek FTP server ready.\r\n",
     };
     send(&mut writer, ep, &events, banner).await?;
 

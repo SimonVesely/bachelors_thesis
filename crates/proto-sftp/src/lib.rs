@@ -5,7 +5,8 @@
 //!   implements the file operations and logging
 //! - New ED25519 host key is generated on every start, clients will warn that the key changed
 //! - Authentication only by password:
-//!   - users: None - anonymous, any user name and password is accepted
+//!   - users: None - anonymous, any user name and password is accepted, the client gets
+//!     an auth banner "FTPeek SFTP server ready (anonymous access enabled)"
 //!   - users: Some(UserDb) - checked against proto-core user database (redb + argon2)
 //! - All paths are confined to the root directory, ".." can't leave it, ':' and '\' are rejected
 //! - Every SSH step (auth, channel, subsystem) and every SFTP packet is sent as MessageEvent,
@@ -104,6 +105,8 @@
 //!           ---- everything below is chacha20-poly1305 encrypted ----
 //!   C <-> S [SSH] EXT_INFO  server-sig-algs=ssh-ed25519,ecdsa-sha2-*,rsa-sha2-512/256
 //!   C -> S  [SSH] SERVICE_REQUEST ssh-userauth      S -> C [SSH] SERVICE_ACCEPT
+//!   S -> C  [SSH] USERAUTH_BANNER "FTPeek SFTP server ready (anonymous access enabled)"
+//!                 (only when users: None)
 //!
 //! Authentication (RFC 4252)
 //!   C -> S  [SSH] USERAUTH_REQUEST user, method none
@@ -286,6 +289,15 @@ impl SshSession {
 
 impl russh::server::Handler for SshSession {
     type Error = russh::Error;
+
+    async fn authentication_banner(&mut self) -> Result<Option<String>, Self::Error> {
+        if self.cfg.users.is_some() {
+            return Ok(None);
+        }
+        let banner = "FTPeek SFTP server ready (anonymous access enabled)";
+        self.reply(&format!("SSH_MSG_USERAUTH_BANNER \"{banner}\""));
+        Ok(Some(format!("{banner}\r\n")))
+    }
 
     async fn auth_password(&mut self, user: &str, password: &str) -> Result<Auth, Self::Error> {
         self.request(format!(
