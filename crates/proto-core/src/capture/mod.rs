@@ -37,7 +37,7 @@ pub use dissect::{
 pub use keys::{keylog, record_secret};
 pub use layers::{Field, Layer, decrypted_layers, layers};
 #[cfg(feature = "capture")]
-pub use live::{Capture, start};
+pub use live::{Capture, probe, start};
 pub use ssh::SshHalf;
 pub use tls::TlsHalf;
 

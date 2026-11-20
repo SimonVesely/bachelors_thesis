@@ -7,8 +7,10 @@
 //!   (`track_client` + `logs`)
 //! - Stop: sends on the shutdown broadcast; the serve future ends, capture stops, `running` resets
 //! - Layout: `ControlBar` + 4 named panes placed by CSS grid areas (`pane--log`, `pane--detail`,
-//!   `pane--dir`, `pane--diagram`); detail/diagram switch between pcap view (`Frame*`) and
-//!   event view (`Packet*`)
+//!   `pane--dir`, `pane--diagram`); detail/diagram switch between L7-L2 view (`Frame*`, pcap) and
+//!   L7 view (`Packet*`, event log)
+//! - The view can be switched at any time (also mid-transfer): both logs are always collected,
+//!   switching only resets the selection because row indices differ between the two logs
 //! ```text
 //! +---------------------------------------------------------------------------------+
 //! | ControlBar                                                     | ClientList     |
@@ -66,7 +68,12 @@ pub fn Status(mode: String, protocol: Proto) -> Element {
     let decrypt = use_signal(|| false);
     let mut capture = use_capture();
     let packets = capture.packets;
-    let wire = capture.wire;
+    let wire = use_memo(move || capture.shows_wire());
+
+    use_effect(move || {
+        let _ = wire();
+        selected.set(None);
+    });
 
     let start_server = move |_| {
         let bind_ip: IpAddr = state

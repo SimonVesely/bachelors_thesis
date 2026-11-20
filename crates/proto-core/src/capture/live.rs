@@ -5,6 +5,8 @@
 //! - Kernel BPF filter `[host <ip> and] tcp|udp`, non-promiscuous, 32 MiB buffer, immediate mode
 //! - One blocking reader thread per device, frames sent as `RawFrame` over an mpsc channel
 //! - Dropping `Capture` sets the stop flag, threads exit within the 100 ms read timeout
+//! - `probe` opens the default device once and closes it: tells the GUI up front whether pcap
+//!   works (library present, permission to open the device) without starting a capture
 //! - Windows: `wpcap.dll` is loaded from `System32\Npcap` (not on the DLL search path),
 //!   device names are GUIDs so the description is used as label
 
@@ -71,6 +73,17 @@ pub fn start(cfg: &CaptureConfig, frames: UnboundedSender<RawFrame>) -> Result<C
         spawn_reader(cap, label(&lo), frames, stop.clone());
     }
     Ok(Capture { stop, interfaces })
+}
+
+pub fn probe() -> Result<(), String> {
+    load_library()?;
+    let device = Device::lookup()
+        .map_err(|e| format!("cannot list interfaces: {e}"))?
+        .ok_or("no capture interface found")?;
+    pcap::Capture::from_device(device.clone())
+        .and_then(|cap| cap.timeout(100).open())
+        .map(drop)
+        .map_err(|e| format!("{}: {e}", label(&device)))
 }
 
 fn open(device: &Device, filter: &str) -> Result<pcap::Capture<Active>, pcap::Error> {

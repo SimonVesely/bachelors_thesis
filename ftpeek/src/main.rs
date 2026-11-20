@@ -2,11 +2,12 @@
 //! ## About:
 //! - Dioxus 0.7 desktop app. It runs one of the protocol servers from the `proto-*` crates and
 //!   shows every exchange between server and clients
-//! - Two views of the same traffic:
-//!   - Wireshark view: real frames captured with pcap (`proto_core::capture`), including the TCP
-//!     handshake, TLS records and optional TLS decryption (FTPS only)
-//!   - Event log (fallback when pcap is off or unavailable): `MessageEvent`s that the server
-//!     crates send through `proto_core::event_channel`, already decrypted by the server
+//! - Two views of the same traffic, switchable at any time (Type of capture in the control bar):
+//!   - L7-L2 capture: real frames captured with pcap (`proto_core::capture`), including the TCP
+//!     handshake, TLS records and optional TLS decryption (FTPS only); disabled when pcap is
+//!     unavailable
+//!   - L7 capture: `MessageEvent`s that the server crates send through
+//!     `proto_core::event_channel`, already decrypted by the server
 //! - FTPeek itself contains no protocol logic, it only configures, starts and displays.
 //!   Everything protocol-specific lives in `src/protocols/`
 //!
@@ -19,8 +20,8 @@
 //!   - ftp.rs, ftps.rs, tftp.rs, sftp.rs - `impl Spec` for each protocol
 //! - pages/server/ - the server page (route `/status/:mode/:protocol`)
 //!   - mod.rs - `Status` page: state, Start/Stop logic, layout of the panels
-//!   - control_bar.rs - top box: title, chips, settings, capture checkbox, hints, client list
-//!   - capture.rs - `use_capture()` hook: starts pcap + dissector, falls back to the event log
+//!   - control_bar.rs - top box: title, chips, settings, capture type switch, hints, client list
+//!   - capture.rs - `use_capture()` hook: pcap probe + capture + dissector, `LogView` switch
 //! - components/ - reusable UI, protocol independent
 //!   - mode_select.rs, protocol_select.rs, unavailable.rs, shell.rs - menu screens and app frame
 //!   - user_manager.rs - user database dialog (redb + argon2 from `proto-core`)

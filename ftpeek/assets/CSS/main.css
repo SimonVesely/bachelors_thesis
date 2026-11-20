@@ -173,6 +173,13 @@ input, select, textarea,
 .btn--ghost:hover { border-color: var(--color-blue); }
 .btn--on { background: var(--color-blue); color: #ffffff; border-color: var(--color-blue); }
 .btn--on:hover { background: var(--color-blue-hover); }
+.btn--ghost:disabled { background: var(--color-surface); color: var(--color-disabled); border-color: var(--color-border); cursor: not-allowed; }
+
+.segmented { display: flex; }
+.segmented .btn { height: 2.125rem; border-radius: 0; }
+.segmented .btn + .btn { margin-left: -1px; }
+.segmented .btn:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+.segmented .btn:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
 
 .browse-btn {
   padding: 0.5rem 0.75rem;

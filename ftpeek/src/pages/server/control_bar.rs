@@ -3,7 +3,10 @@
 //! - Title, back link, status chips (interface, access mode, listening/stopped), Start/Stop
 //! - Settings rendered from `spec.options()`: dropdowns before Root directory, ports after it;
 //!   all inputs are disabled while the server runs
-//! - Root directory input with native folder picker (rfd), pcap checkbox and capture note
+//! - Root directory input with native folder picker (rfd)
+//! - Type of capture: [L7 capture] (event log) / [L7-L2 capture] (pcap, Wireshark-like),
+//!   switchable any time, also while a transfer runs; L7-L2 is disabled when pcap is unavailable
+//!   (the reason is in its tooltip and in the note below)
 //! - Protocol hints and the last server error
 //! - Client list on the right side (filters the log by session)
 //! ```text
@@ -11,15 +14,15 @@
 //! | [<- Main menu]  FTP SERVER                               [START SERVER]  | CLIENTS 2 connected  |
 //! |                 (Interface eth0 · 192.0.2.2) (Access anonymous) (o stopped)| #1 192.0.2.2:37582 |
 //! |--------------------------------------------------------------------------|    anonymous  23 pkts|
-//! | Root directory                  PI port  Active port Passive from Passive to Packet capture     |
-//! | [/home/simon/FTPeek ] [Browse…] [21  ^v] [20     ^v] [50000  ^v] [50019 ^v] [x] pcap (Wireshark)|
-//! | hints / last error                                          live on eth0 + lo                   |
+//! | Root directory              PI port  Active port Passive from Passive to Type of capture         |
+//! | [/home/simon/FTPeek][Browse…] [21 ^v] [20    ^v] [50000  ^v] [50019 ^v] [L7 CAPTURE][L7-L2 CAPTURE]|
+//! | hints / last error                                                live on eth0 + lo           |
 //! +--------------------------------------------------------------------------+----------------------+
 //! ```
 
 use dioxus::prelude::*;
 
-use super::capture::CaptureState;
+use super::capture::{CaptureState, LogView};
 use crate::components::{ClientInfo, ClientList, OptionField};
 use crate::protocols::{Opt, Options, Proto};
 use crate::util::plural;
@@ -42,7 +45,13 @@ pub fn ControlBar(
     let state = use_context::<AppState>();
     let spec = protocol.spec();
     let mut root_dir = root_dir;
-    let mut enabled = capture.enabled;
+    let mut view = capture.view;
+    let wire = capture.shows_wire();
+    let unavailable = capture.unavailable.read().clone();
+    let wire_title = match &unavailable {
+        Some(err) => format!("pcap unavailable: {err}"),
+        None => "Frames captured with pcap, L7 down to L2".to_string(),
+    };
 
     let access_label = if !spec.login() {
         format!("none ({} has no login)", spec.label())
@@ -134,18 +143,26 @@ pub fn ControlBar(
                         OptionField { key: "{opt.key()}", protocol, opt, options, disabled: running() }
                     }
                     div { class: "control-bar__field",
-                        span { class: "control-bar__label", "Packet capture" }
-                        label { class: "status-summary__check",
-                            input {
-                                r#type: "checkbox",
-                                checked: enabled(),
-                                disabled: running(),
-                                onchange: move |e| enabled.set(e.checked()),
+                        span { class: "control-bar__label", "Type of capture" }
+                        div { class: "segmented",
+                            button {
+                                class: if wire { "btn btn--ghost" } else { "btn btn--ghost btn--on" },
+                                r#type: "button",
+                                title: "Messages as the server sees them (commands, replies, data), already decrypted",
+                                onclick: move |_| view.set(LogView::L7),
+                                "L7 capture"
                             }
-                            "pcap (Wireshark view)"
+                            button {
+                                class: if wire { "btn btn--ghost btn--on" } else { "btn btn--ghost" },
+                                r#type: "button",
+                                title: "{wire_title}",
+                                disabled: unavailable.is_some(),
+                                onclick: move |_| view.set(LogView::Wire),
+                                "L7-L2 capture"
+                            }
                         }
                         if let Some(note) = (capture.note)() {
-                            span { class: if (capture.wire)() { "status-summary__note status-summary__note--ok" } else { "status-summary__note" }, "{note}" }
+                            span { class: if unavailable.is_none() { "status-summary__note status-summary__note--ok" } else { "status-summary__note" }, "{note}" }
                         }
                     }
                 }

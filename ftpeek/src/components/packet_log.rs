@@ -1,6 +1,7 @@
 //! # Packet / event table
 //! ## About:
-//! - One table for both views: captured `Packet`s (pcap) or `MessageEvent`s (event log)
+//! - One table for both views: captured `Packet`s (L7-L2, pcap) or `MessageEvent`s (L7, event log),
+//!   the view can change at any time, autoscroll jumps to the end of the newly shown log
 //! - Virtualized: only rows in the viewport + `OVERSCAN` are rendered (fixed `ROW_HEIGHT`),
 //!   so 100 000 rows stay smooth
 //! - Autoscroll toggle, Clear, client filter (by session addresses), Decrypt toggle
@@ -125,7 +126,7 @@ fn elapsed(t: SystemTime, t0: SystemTime) -> String {
 pub fn PacketLog(
     logs: Signal<RollingLog<MessageEvent>>,
     packets: Signal<RollingLog<Packet>>,
-    wire: Signal<bool>,
+    wire: ReadSignal<bool>,
     selected: Signal<Option<usize>>,
     clients: Signal<Vec<ClientInfo>>,
     filter: Signal<Option<u64>>,
@@ -202,25 +203,28 @@ pub fn PacketLog(
         .map(|c| (c.session, c.label()))
         .collect();
 
-    let mut seen_dropped = use_signal(|| 0usize);
+    let mut seen_dropped = use_signal(|| (false, 0usize));
     use_effect(move || {
-        let dropped = match wire() {
+        let view = wire();
+        let dropped = match view {
             true => packets.read().dropped(),
             false => logs.read().dropped(),
         };
-        let before = *seen_dropped.peek();
-        if dropped > before && !*autoscroll.peek() && filter.peek().is_none() {
+        let (before_view, before) = *seen_dropped.peek();
+        if view == before_view && dropped > before && !*autoscroll.peek() && filter.peek().is_none()
+        {
             let shift = (dropped - before) as f64 * ROW_HEIGHT;
             let _ = document::eval(&format!(
                 "var el = document.getElementById('packet-scroll'); if (el) {{ el.scrollTop = Math.max(0, el.scrollTop - {shift}); }}"
             ));
         }
-        seen_dropped.set(dropped);
+        seen_dropped.set((view, dropped));
     });
 
     use_effect(move || {
         let count = logs.read().len() + packets.read().len();
         let _ = filter();
+        let _ = wire();
         if autoscroll() && count > 0 {
             let _ = document::eval(
                 "var el = document.getElementById('packet-scroll'); if (el) { el.scrollTop = el.scrollHeight; }",
